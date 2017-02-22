@@ -6,9 +6,14 @@
 #include "mathlib.h"
 #include "color.h"
 #include "random.h"
+#include "mesh.h"
+#include "geometry.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "lib/stb_image_write.h"
+
+#include "obj_parser.cpp"
+#include "bsphere.cpp"
 
 static u32 gRayCount;
 
@@ -24,11 +29,6 @@ struct {
     char * image_output_filename;
     u32 use_system_rand;
 } gParams;
-
-struct Ray {
-    Vector3 origin;
-    Vector3 direction;
-};
 
 // newmtl leaf
 //     Ns 10.0000
@@ -57,11 +57,6 @@ struct Material {
     Vector4 emissive_color;
 
     // TODO(bryan): Texture maps
-};
-
-struct Sphere {
-    Vector3 center;
-    float radius;
 };
 
 static bool 
@@ -95,6 +90,8 @@ struct TriangleHitParams {
     float u;
     float v;
     float w;
+
+    Vector3 normal;
 };
 
 static bool
@@ -131,8 +128,33 @@ IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, TriangleHitParams
     hit->v = v * ood;
     hit->w = w * ood;
     hit->u = 1.0f - hit->v - hit->w;
+    hit->normal = normal;
 
     return true;
+}
+
+static bool
+IntersectRayMesh(Ray ray, MeshGroup * mesh_group, Mesh * mesh, TriangleHitParams * hit_params_out) {
+    bool hit = false;
+    TriangleHitParams best_hit;
+    for (u32 i = 0; i < mesh_group->idx_positions.size(); i += 3) {
+        u32 idx_a = mesh_group->idx_positions[0];
+        u32 idx_b = mesh_group->idx_positions[1];
+        u32 idx_c = mesh_group->idx_positions[2];
+
+        Vector3 pa = mesh->positions[idx_a];
+        Vector3 pb = mesh->positions[idx_b];
+        Vector3 pc = mesh->positions[idx_c];
+
+        TriangleHitParams hit_params;
+        if (IntersectRayTriangle(ray, pa, pb, pc, &hit_params)) {
+            if (hit_params.t < best_hit.t) {
+                best_hit = hit_params;
+            }
+        }
+    }
+    if (hit_params_out) *hit_params_out = best_hit;
+    return hit;
 }
 
 enum LightSourceType {
@@ -169,11 +191,14 @@ WriteColor(Framebuffer * fb, u32 x, u32 y, float r, float g, float b, float a) {
 
 enum ObjectType {
     ObjectType_Sphere,
+    ObjectType_MeshGroup,
 };
 
 struct SceneObject {
     struct {
         Sphere sphere;
+        MeshGroup * mg;
+        Mesh * mesh;
     };
     ObjectType type;
     Material * material;
@@ -182,6 +207,7 @@ struct SceneObject {
 struct Scene {
     SceneObject * objects;
     u32 object_count;
+    BoundingHierarchy * hierarchy;
     LightSource * lights;
     u32 light_count;
 };
@@ -193,8 +219,8 @@ TraceRay(Ray ray, Scene * scene, SceneObject ** hit_object, float * hit_t) {
     ray.origin += ray.direction * gParams.ray_bias;
 
     bool hit = false;
-    SceneObject * best_object = NULL;
     float best_t = FLT_MAX;
+#if 0
     for (u32 i = 0; i < scene->object_count; ++i) {
         SceneObject * o = scene->objects + i;
         float t;
@@ -208,6 +234,45 @@ TraceRay(Ray ray, Scene * scene, SceneObject ** hit_object, float * hit_t) {
             }
         }
     }
+#endif
+
+    std::vector<u32> check_spheres;
+    check_spheres.push_back(0);
+    std::vector<MeshGroup *> check_meshes;
+    while (check_spheres.size() > 0) {
+        u32 i = check_spheres.back();
+        check_spheres.pop_back();
+        BoundingSphere s = scene->hierarchy->spheres[i];
+        float t;
+        if (IntersectRaySphere(ray, s.s, &t)) {
+            if (s.c0 && s.c1) {
+                check_spheres.push_back(s.c0);
+                check_spheres.push_back(s.c1);
+            }
+            else {
+                check_meshes.push_back(scene->hierarchy->mesh_groups[i]);
+            }
+        }
+    }
+
+    SceneObject * best_object = (SceneObject *)calloc(1, sizeof(SceneObject));
+    best_object->type = ObjectType_MeshGroup;
+    TriangleHitParams best_hit_params;
+    for (u32 i = 0; i < check_meshes.size(); ++i) {
+        float t;
+        TriangleHitParams hit_params;
+        #if 0
+        if (IntersectRayMesh(ray, check_meshes[i], &hit_params)) {
+            if (hit_params.t < best_hit_params.best_t) {
+                best_object->mesh_group = check_meshes[i];
+                best_object->mesh = scene->hierarchy->mesh;
+                best_hit_params = hit_params;
+                hit = true;
+            }
+        }
+        #endif
+    }
+
     if (hit_object) *hit_object = best_object;
     if (hit_t) *hit_t = best_t;
     return hit;
@@ -664,10 +729,22 @@ InitScene() {
     return scene;    
 }
 
-#include "obj_parser.cpp"
+#include "timing.h"
 
 int main(int argc, char ** argv) {
-    Mesh * m = ParseOBJ("D:/Users/Bryan/Desktop/meshes/san-miguel/sanMiguel/sanMiguel.obj");
+    Mesh * mesh;
+    BoundingHierarchy hierarchy;
+    {
+        TIME_BLOCK("Load Mesh");
+        // mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/san-miguel/sanMiguel/sanMiguel.obj");
+        mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/crytek-sponza/sponza.obj");
+    }
+    {
+        TIME_BLOCK("Build Hierarchy");
+        BuildHierarchy(&hierarchy, mesh);
+    }
+
+    __debugbreak();
     return 0;
 
     InitParams(argc, argv);

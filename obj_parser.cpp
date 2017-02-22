@@ -1,26 +1,8 @@
 #include "brt.h"
 #include "mathlib.h"
+#include "mesh.h"
 #include <vector>
 #include <cctype>
-
-typedef std::vector<u32> IndexBuffer;
-
-struct MeshGroup {
-    IndexBuffer idx_positions;
-    IndexBuffer idx_texcoords;
-    IndexBuffer idx_normals;
-
-    char * name;
-    char * material_name;
-};
-
-struct Mesh {
-    std::vector<MeshGroup> groups;
-
-    std::vector<Vector3> positions;
-    std::vector<Vector2> texcoords;
-    std::vector<Vector3> normals;
-};
 
 static u32 current_line;
 
@@ -239,8 +221,6 @@ ParseOBJ(char * filename) {
         // Go to the next line (or NUL).
         cur = NextLine(cur);
     }
-
-//    __debugbreak();
 
     free(bytes);
     return mesh;

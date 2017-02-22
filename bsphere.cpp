@@ -1,18 +1,15 @@
-// TODO(bryan): Cleanup this data structure.
-struct BoundingSphere {
-    Vector3 center;
-    float radius;
-    BoundingSphere * children[2];
-    u32 tri_first_index;
-    bool is_leaf;
-};
+#include "brt.h"
+#include "mathlib.h"
+#include "mesh.h"
+#include "geometry.h"
+#include "timing.h"
 
-struct BoundingSphere {
+struct BoundingSphereP {
     Sphere s;
-    BoundingSphere * children[2];
-    Mesh * mesh;
+    BoundingSphereP * children[2];
+    MeshGroup * mesh_group;
 };
-
+#if 0
 static Matrix33
 CovarianceMatrix(Vector3 * points, u32 point_count) {
     float one_over_count = 1.0f / (float)point_count;
@@ -84,9 +81,10 @@ BoundingSphere_FromTriangle(Vector3 p0, Vector3 p1, Vector3 p2) {
     result.radius = sqrtf(dmax);
     return result;
 }
+#endif
 
 static void
-UpdateSphereWithPoint(BoundingSphere * s, Vector3 p) {
+UpdateSphereWithPoint(Sphere * s, Vector3 p) {
     Vector3 pc = p - s->center;
     float sq_dist = Dot(pc, pc);
     if (sq_dist > (s->radius * s->radius)) {
@@ -99,8 +97,8 @@ UpdateSphereWithPoint(BoundingSphere * s, Vector3 p) {
     }
 }
 
-static BoundingSphere
-BoundingSphere_FromMesh(Vector3 * points, u32 point_count) {
+static Sphere
+BoundingSphere_FromMesh(Mesh * mesh, MeshGroup * group) {
     // To estimate the bounding sphere, we start by finding the min/max points
     // along all axes, and then use the most separated of those to form a 
     // sphere.  We then apply Ritter's algorithm, looping over all points and
@@ -111,6 +109,8 @@ BoundingSphere_FromMesh(Vector3 * points, u32 point_count) {
     // Alternatives:
     // - Eigen-Ritter -- more accurate, more complex.
     // - Welzl -- optimal, difficult to make robust.
+    u32 point_count = group->idx_positions.size();
+
     u32 minx_idx = 0;
     u32 miny_idx = 0;
     u32 minz_idx = 0;
@@ -118,18 +118,19 @@ BoundingSphere_FromMesh(Vector3 * points, u32 point_count) {
     u32 maxy_idx = 0;
     u32 maxz_idx = 0;
     for (u32 i = 0; i < point_count; ++i) {
-        if (points[i].x < points[minx_idx].x) minx_idx = i;
-        if (points[i].y < points[miny_idx].y) miny_idx = i;
-        if (points[i].z < points[minz_idx].z) minz_idx = i;
+        u32 idx = group->idx_positions[i];
+        if (mesh->positions[idx].x < mesh->positions[minx_idx].x) minx_idx = idx;
+        if (mesh->positions[idx].y < mesh->positions[miny_idx].y) miny_idx = idx;
+        if (mesh->positions[idx].z < mesh->positions[minz_idx].z) minz_idx = idx;
 
-        if (points[i].x > points[maxx_idx].x) maxx_idx = i;
-        if (points[i].y > points[maxy_idx].y) maxy_idx = i;
-        if (points[i].z > points[maxz_idx].z) maxz_idx = i;
+        if (mesh->positions[idx].x > mesh->positions[maxx_idx].x) maxx_idx = idx;
+        if (mesh->positions[idx].y > mesh->positions[maxy_idx].y) maxy_idx = idx;
+        if (mesh->positions[idx].z > mesh->positions[maxz_idx].z) maxz_idx = idx;
     }
 
-    Vector3 vx = points[minx_idx] - points[maxx_idx];
-    Vector3 vy = points[miny_idx] - points[maxy_idx];
-    Vector3 vz = points[minz_idx] - points[maxz_idx];
+    Vector3 vx = mesh->positions[minx_idx] - mesh->positions[maxx_idx];
+    Vector3 vy = mesh->positions[miny_idx] - mesh->positions[maxy_idx];
+    Vector3 vz = mesh->positions[minz_idx] - mesh->positions[maxz_idx];
 
     float sq_distx = Dot(vx, vx);
     float sq_disty = Dot(vy, vy);
@@ -147,32 +148,31 @@ BoundingSphere_FromMesh(Vector3 * points, u32 point_count) {
         min_idx = minz_idx;
     }
 
-    BoundingSphere result;
-    result.center = (points[min_idx] + points[max_idx]) * 0.5f;
-    result.radius = sqrtf(Dot(points[max_idx] - result.center, points[max_idx] - result.center));
+    Sphere result;
+    result.center = (mesh->positions[min_idx] + mesh->positions[max_idx]) * 0.5f;
+    result.radius = sqrtf(Dot(mesh->positions[max_idx] - result.center, mesh->positions[max_idx] - result.center));
 
     for (u32 i = 0; i < point_count; ++i) {
-        UpdateSphereWithPoint(&result, points[i]);
+        u32 idx = group->idx_positions[i];
+        UpdateSphereWithPoint(&result, mesh->positions[idx]);
     }
 
     return result;
 }
 
-static BoundingSphere
-BoundingSphere_FromChildren(BoundingSphere * s0, BoundingSphere * s1) {
-    BoundingSphere result;
-    result.center = (s0->center + s1->center) * 0.5f;
+static Sphere
+BoundingSphere_FromChildren(Sphere s0, Sphere s1) {
+    Sphere result;
+    result.center = (s0.center + s1.center) * 0.5f;
 
-    Vector3 v0 = s0->center - result.center;
-    Vector3 v1 = s1->center - result.center;
+    Vector3 v0 = s0.center - result.center;
+    Vector3 v1 = s1.center - result.center;
 
-    float r0 = Length(v0) + s0->radius;
-    float r1 = Length(v1) + s1->radius;
+    float r0 = Length(v0) + s0.radius;
+    float r1 = Length(v1) + s1.radius;
 
     result.radius = max(r0, r1);
-
-    result.children[0] = s0;
-    result.children[1] = s1;
+    return result;
 }
 
 
@@ -185,19 +185,20 @@ BoundingSphere_FromChildren(BoundingSphere * s0, BoundingSphere * s1) {
 //
 
 static bool
-FindClosestSpheres(std::vector<BoundingSphere *> spheres, u32 * idx_a, u32 * idx_b) {
-    if (spheres.size() < 2) {
+FindClosestSpheres(std::vector<BoundingSphereP *> spheres, u32 * idx_a, u32 * idx_b) {
+    u32 ssize = spheres.size();
+    if (ssize < 2) {
         return false;
     }
     else {
         float min_dist = FLT_MAX;
-        u32 best[2];
+        u32 best[2] = { ssize, ssize };
         for (u32 i = 0; i < spheres.size(); ++i) {
-            for (u32 j = 0; j < spheres.size(); ++j) {
-                BoundingSphere * a = spheres[i];
-                BoundingSphere * b = spheres[j];
+            for (u32 j = i + 1; j < spheres.size(); ++j) {
+                BoundingSphereP * a = spheres[i];
+                BoundingSphereP * b = spheres[j];
 
-                Vector3 dc = a->center - b->center;
+                Vector3 dc = a->s.center - b->s.center;
                 float sq_dist = Dot(dc, dc);
                 if (sq_dist < min_dist) {
                     best[0] = i;
@@ -212,47 +213,102 @@ FindClosestSpheres(std::vector<BoundingSphere *> spheres, u32 * idx_a, u32 * idx
     }
 }
 
-static BoundingSphere *
-BuildHierarchy(Mesh * meshes, u32 mesh_count) {
-    std::vector<BoundingSphere *> spheres;
-    for (u32 mesh_idx = 0; mesh_idx < mesh_count; ++mesh_idx) {
-        Mesh * mesh = meshes + mesh_idx;
-        u32 index_count = mesh->index_count;
-        for (u32 i = 0; i < index_count; i += 3) {
-            u32 idx_a = mesh->indices[i + 0];
-            u32 idx_b = mesh->indices[i + 1]
-            u32 idx_c = mesh->indices[i + 2]
-            Vector3 a = mesh->GetVertexPos(idx_a);
-            Vector3 b = mesh->GetVertexPos(idx_b);
-            Vector3 c = mesh->GetVertexPos(idx_c);
+struct BoundingSphere {
+    Sphere s;
+    u32 c0;
+    u32 c1;
+};
 
-            BoundingSphere * s = calloc(1, sizeof(BoundingSphere));
-            *s = BoundingSphere_FromTriangle(a, b, c);
-            s->tri_first_index = idx_a;
-            s->is_leaf = true;
+struct BoundingHierarchy {
+    std::vector<BoundingSphere> spheres;
+    std::vector<MeshGroup *> mesh_groups;
+    Mesh * mesh;
+};
+
+static u32
+FlattenHierarchyTree(std::vector<BoundingSphere> * spheres, std::vector<MeshGroup *> * mesh_groups, BoundingSphereP * root) {
+    assert(mesh_groups->size() == spheres->size());
+    u32 my_idx = spheres->size();
+    mesh_groups->push_back(root->mesh_group);
+    spheres->push_back(BoundingSphere());
+    BoundingSphere * ps = &(*spheres)[my_idx];
+    ps->s = root->s;
+    if (root->children[0]) {
+        assert(root->children[1]);
+        ps->c0 = FlattenHierarchyTree(spheres, mesh_groups, root->children[0]);
+        ps->c1 = FlattenHierarchyTree(spheres, mesh_groups, root->children[1]);
+    }
+    else {
+        // 0 is always the root of the tree, so we can use it as an invalid 
+        // child sentinel.
+        ps->c0 = 0;
+        ps->c1 = 0;
+    }
+    free(root);
+    return my_idx;
+}
+
+static void
+BuildHierarchy(BoundingHierarchy * h, Mesh * mesh) {
+    std::vector<BoundingSphereP *> spheres;
+    {
+        TIME_BLOCK("Build Leaf Spheres");
+        for (u32 i = 0; i < mesh->groups.size(); ++i) {
+            MeshGroup * mg = &mesh->groups[i];
+
+            BoundingSphereP * s = (BoundingSphereP *)calloc(1, sizeof(BoundingSphereP));
+            s->s = BoundingSphere_FromMesh(mesh, mg);
+            s->children[0] = NULL;
+            s->children[1] = NULL;
+            s->mesh_group = mg;
             spheres.push_back(s);
         }
     }
 
-    u32 sp_a;
-    u32 sp_b;
-    while (FindClosestSpheres(spheres, &sp_a, &sp_b)) {
-        BoundingSphere * a = spheres[sp_a];
-        BoundingSphere * b = spheres[sp_b];
-        spheres.erase(spheres.begin() + sp_a, spheres.begin() + sp_a);
-        spheres.erase(spheres.begin() + sp_b, spheres.begin() + sp_b);
+    u32 total_sphere_count = spheres.size();
+    {
+        TIME_BLOCK("Build Sphere Tree");
+        // This algorithm is ~O(n^2) in number of leaf spheres.
+        // This is *really slow* on large models.  So, we do want to
+        // prebake this stuff as well.
+        u32 sp_a;
+        u32 sp_b;
+        while (FindClosestSpheres(spheres, &sp_a, &sp_b)) {
+            BoundingSphereP * a = spheres[sp_a];
+            BoundingSphereP * b = spheres[sp_b];
+            assert(a && b);
+            if (sp_a > sp_b) {
+                spheres.erase(spheres.begin() + sp_a);
+                spheres.erase(spheres.begin() + sp_b);
+            }
+            else {
+                spheres.erase(spheres.begin() + sp_b);
+                spheres.erase(spheres.begin() + sp_a);
+            }
 
-        BoundingSphere * parent = calloc(1, sizeof(BoundingSphere))
-        *parent = BoundingSphere_FromChildren(a, b);
+            BoundingSphereP * parent = (BoundingSphereP *)calloc(1, sizeof(BoundingSphereP));
+            assert(parent);
+            parent->s = BoundingSphere_FromChildren(a->s, b->s);
+            parent->children[0] = a;
+            parent->children[1] = b;
 
-        spheres.push_back(parent);
+            spheres.push_back(parent);
+            total_sphere_count++;
+        }
     }
-
-    assert(spheres.size() == 1);
-    return spheres[0];
+    
+    // Flatten tree into an array.  This is not terribly efficient, but we're 
+    // going to do this offline so I don't care. 
+    h->spheres.reserve(total_sphere_count);
+    h->mesh_groups.reserve(total_sphere_count);
+    h->mesh = mesh;
+    {
+        TIME_BLOCK("Flatten Tree");
+        FlattenHierarchyTree(&h->spheres, &h->mesh_groups, spheres[0]);
+    }
 }
 
-
+#if 0
 // Casting against spheres:
 // Cast against root, if collides, cast against all children.  May hit multiple children,
 // in which case *all* of them need to be checked.
@@ -311,3 +367,4 @@ Raycast_TriangleList(Ray ray, std::vector<u32> possible_tris, u32 * hit_tri, Tri
     if (hit_params) *hit_params = best_params;
     return hit;
 }
+#endif
