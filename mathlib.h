@@ -3,6 +3,28 @@
 
 #define Assert(...)
 
+///////////////////////////////////////////////////////////////////////////////
+
+#ifdef min
+#undef min
+#endif
+#define min(a, b) ((a) < (b) ? (a) : (b))
+
+#ifdef max
+#undef max
+#endif
+#define max(a, b) ((a) > (b) ? (a) : (b))
+
+#define Clamp(n, a, b) (min(max(n, a), b))
+#define Lerp(a, b, t) ((a) + ((b) - (a))*(t))
+
+inline float 
+Fract(float f) {
+    return f - (s32)f;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 struct Vector2 {
     float x;
     float y;

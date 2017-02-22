@@ -7,6 +7,71 @@ struct BoundingSphere {
     bool is_leaf;
 };
 
+struct BoundingSphere {
+    Sphere s;
+    BoundingSphere * children[2];
+    Mesh * mesh;
+};
+
+static Matrix33
+CovarianceMatrix(Vector3 * points, u32 point_count) {
+    float one_over_count = 1.0f / (float)point_count;
+    Vector3 c;
+    float e00 = 0.0f;
+    float e11 = 0.0f;
+    float e22 = 0.0f;
+    float e01 = 0.0f;
+    float e02 = 0.0f;
+    float e12 = 0.0f;
+
+    for (u32 i = 0; i < point_count; ++i) {
+        c += points[i];
+    }
+    c *= one_over_count;
+
+    for (u32 i = 0; i < point_count; ++i) {
+        Vector3 p = points[i] - c;
+
+        e00 += p.x*p.x;
+        e11 += p.y*p.y;
+        e22 += p.z*p.z;
+        e01 += p.x*p.y;
+        e02 += p.x*p.z;
+        e12 += p.y*p.z;
+    }
+    
+    Matrix33 m;
+    m(0, 0) = e00 * one_over_count;
+    m(1, 1) = e11 * one_over_count;
+    m(2, 2) = e22 * one_over_count;
+    m(0, 1) = m(1, 0) = e01 * one_over_count;
+    m(0, 2) = m(2, 0) = e02 * one_over_count;
+    m(1, 2) = m(1, 2) = e12 * one_over_count;
+
+    return m;
+}
+
+static void
+SymSchur2(Matrix33 m, u32 p, u32 q, float * out_c, float * out_s) {
+    const float epsilon = 0.0001f;
+    if (fabsf(m(p, q)) > epsilon) {
+        float r = (m(q, q) - m(p, p)) / (2.0f * m(p, q));
+        float t;
+        if (r >= 0.0f) {
+            t = 1.0f / (r + sqrtf(1.0f + r*r));
+        }
+        else {
+            t = -1.0f / (-r + sqrtf(1.0f + r*r));
+        }
+        *out_c = 1.0f / sqrtf(1.0f + t*t);
+        *out_s = (*out_c) * t;
+    }
+    else {
+        *out_c = 1.0f;
+        *out_s = 0.0f;
+    }
+}
+
 static BoundingSphere
 BoundingSphere_FromTriangle(Vector3 p0, Vector3 p1, Vector3 p2) {
     BoundingSphere result;

@@ -15,7 +15,7 @@ if NOT exist build mkdir build
 pushd build
 
 REM For asm output add flag /Fa
-set BUILD_OPTS=/O2 /Zi /nologo /Fa
+set BUILD_OPTS=/Od /Zi /nologo /EHsc
 
 cl %BUILD_OPTS% %FPATH% /INCREMENTAL:NO
 

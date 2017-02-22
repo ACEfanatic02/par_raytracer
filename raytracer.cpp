@@ -4,12 +4,11 @@
 #include <float.h>
 #include "brt.h"
 #include "mathlib.h"
+#include "color.h"
+#include "random.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "../../../lib/stb_image_write.h"
-
-#define Clamp clamp
-#define Lerp lerp
+#include "lib/stb_image_write.h"
 
 static u32 gRayCount;
 
@@ -23,6 +22,7 @@ struct {
     Vector3 camera_position;
     Vector3 camera_facing;
     char * image_output_filename;
+    u32 use_system_rand;
 } gParams;
 
 struct Ray {
@@ -62,7 +62,6 @@ struct Material {
 struct Sphere {
     Vector3 center;
     float radius;
-    Material * material;
 };
 
 static bool 
@@ -157,62 +156,59 @@ struct Framebuffer {
     u32 * DEBUG_rays_cast;
 };
 
-inline float
-Color_LinearToSRGB(float linear) {
-    if (linear <= 0.0031308f) {
-        return 12.92f*linear;
-    }
-    else {
-        return 1.055f*powf(linear, 1.0f/2.4f) - 0.055f;
-    }
-}
-
-inline float
-Color_SRGBToLinear(float srgb) {
-    if (srgb <= 0.04045f) {
-        return srgb / 12.92f;
-    }
-    else {
-        return powf((srgb + 0.055f) / 1.055f, 2.4f);
-    }
-}
-
 static void
 WriteColor(Framebuffer * fb, u32 x, u32 y, float r, float g, float b, float a) {
+    Vector4 c(Color_LinearToSRGB(r),
+              Color_LinearToSRGB(g),
+              Color_LinearToSRGB(b),
+              Color_LinearToSRGB(a));
+
     u32 offset = (y * fb->width + x) * 4;
-    fb->bytes[offset + 0] = (u8)(Clamp(Color_LinearToSRGB(r), 0.0f, 1.0f) * 255.0f);
-    fb->bytes[offset + 1] = (u8)(Clamp(Color_LinearToSRGB(g), 0.0f, 1.0f) * 255.0f);
-    fb->bytes[offset + 2] = (u8)(Clamp(Color_LinearToSRGB(b), 0.0f, 1.0f) * 255.0f);
-    fb->bytes[offset + 3] = (u8)(Clamp(Color_LinearToSRGB(a), 0.0f, 1.0f) * 255.0f);
+    Color_Pack(fb->bytes + offset, c);
 }
 
+enum ObjectType {
+    ObjectType_Sphere,
+};
+
+struct SceneObject {
+    struct {
+        Sphere sphere;
+    };
+    ObjectType type;
+    Material * material;
+};
+
 struct Scene {
-    Sphere * spheres;
-    u32 sphere_count;
+    SceneObject * objects;
+    u32 object_count;
     LightSource * lights;
     u32 light_count;
 };
 
 static bool
-TraceRay(Ray ray, Scene * scene, Sphere ** hit_sphere, float * hit_t) {
+TraceRay(Ray ray, Scene * scene, SceneObject ** hit_object, float * hit_t) {
     gRayCount++;
     // Bias ray
     ray.origin += ray.direction * gParams.ray_bias;
 
     bool hit = false;
-    Sphere * best_sphere = NULL;
+    SceneObject * best_object = NULL;
     float best_t = FLT_MAX;
-    for (u32 s = 0; s < scene->sphere_count; ++s) {
+    for (u32 i = 0; i < scene->object_count; ++i) {
+        SceneObject * o = scene->objects + i;
         float t;
-        if (IntersectRaySphere(ray, scene->spheres[s], &t)) {
-            if (t < best_t) {
-                best_sphere = scene->spheres + s;
-                best_t = t;
-                hit = true;
+        if (o->type == ObjectType_Sphere) {
+            if (IntersectRaySphere(ray, o->sphere, &t)) {
+                if (t < best_t) {
+                    best_object = o;
+                    best_t = t;
+                    hit = true;
+                }
             }
         }
     }
-    if (hit_sphere) *hit_sphere = best_sphere;
+    if (hit_object) *hit_object = best_object;
     if (hit_t) *hit_t = best_t;
     return hit;
 }
@@ -235,13 +231,30 @@ GetShadowRayForLight(Vector3 origin, LightSource * light) {
     return ray;
 }
 
+static RandomState rng;
+static bool rng_init = false;
+
 static float
 GetRandFloat01() {
+    if (!gParams.use_system_rand) {
+        if (!rng_init) {
+            Random_Seed(&rng, 0xdeadbeef01234567ull);
+            rng_init = true;
+        }
+        return Random_NextFloat01(&rng);      
+    }
     return (float)rand() / (float)RAND_MAX;
 }
 
 static float
 GetRandFloat11() {
+    if (!gParams.use_system_rand) {
+        if (!rng_init) {
+            Random_Seed(&rng, 0xdeadbeef01234567ull);
+            rng_init = true;
+        }
+        return Random_NextFloat11(&rng);
+    }
     return GetRandFloat01() * 2.0f - 1.0f;
 }
 
@@ -315,7 +328,6 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
             if (!TraceRay(shadow_ray, scene, NULL, NULL)) {
                 float spec_cos = Dot(view_ray.direction * -1.0f, Reflect(light_vector, normal));
                 result.direct_diffuse = light->color * 2.0f * max(0.0f, Dot(normal, light_vector));
-                // TODO(bryan): Spec intensity from material.
                 result.direct_specular = light->color * powf(max(0.0f, spec_cos), specular_intensity);
             }
         } break;
@@ -331,7 +343,6 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
 
                 float spec_cos = Dot(view_ray.direction * -1.0f, Reflect(light_vector, normal));
                 result.direct_diffuse = light_color * 2.0f * max(0.0f, Dot(normal, light_vector));
-                // TODO(bryan): Spec intensity from material.
                 result.direct_specular = light_color * powf(max(0.0f, spec_cos), specular_intensity);
             }
         } break;
@@ -345,13 +356,13 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
 static Vector4
 TraceRayColor(Ray ray, Scene * scene, s32 iters) {
     Vector4 color = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
-    Sphere * best_sphere;
+    SceneObject * best_object;
     float best_t;
-    if (TraceRay(ray, scene, &best_sphere, &best_t)) {
+    if (TraceRay(ray, scene, &best_object, &best_t)) {
         // Shade pixel
         Vector3 hit_p = ray.origin + ray.direction * best_t;
-        Vector3 hit_normal = Normalize(hit_p - best_sphere->center);
-        Material * mat = best_sphere->material;
+        Vector3 hit_normal = Normalize(hit_p - best_object->sphere.center);
+        Material * mat = best_object->material;
 
         Vector4 direct_light;
         Vector4 direct_specular_light;
@@ -531,6 +542,7 @@ InitParams(int argc, char ** argv) {
     gParams.camera_position = Vector3(0.0f, 15.0f, 10.0f);
     gParams.camera_facing = Normalize(Vector3(0.0f, -0.5f, -1));
     gParams.image_output_filename = strdup("rt_out.png"); // Need this to be on the heap; might be free'd later.
+    gParams.use_system_rand = 0;
 
     // TODO(bryan):  INI
 
@@ -583,6 +595,10 @@ InitParams(int argc, char ** argv) {
             gParams.image_output_filename = strdup(argv[arg_i + 1]);
             arg_i++;
         }
+        else if (STATIC_STRNCMP("--rng", arg)) {
+            Argv_ReadU32(argc, argv, arg_i, &gParams.use_system_rand);
+            arg_i++;            
+        }
 #undef STATIC_STRNCMP
     }
 }
@@ -600,32 +616,25 @@ MakeMaterial(Vector4 color) {
     return result;
 }
 
-int main(int argc, char ** argv) {
-    InitParams(argc, argv);
-
-    Framebuffer fb;
-    fb.width = 640;
-    fb.height = 480;
-    fb.bytes = (u8 *)calloc(4, fb.width * fb.height);
-    fb.DEBUG_rays_cast = (u32 *)calloc(sizeof(u32), fb.width*fb.height);
-
+static Scene
+InitScene() {
     Vector3 SUN_DIR = Normalize(Vector3(1.0f, 0.5f, 1.0f));
-    Sphere spheres[4];
-    spheres[0].center = Vector3(0.0f, 0.0f, -10.0f);
-    spheres[0].radius = 2.0f;
+    SceneObject * spheres = (SceneObject *)calloc(4, sizeof(SceneObject));
+    spheres[0].sphere.center = Vector3(0.0f, 0.0f, -10.0f);
+    spheres[0].sphere.radius = 2.0f;
     spheres[0].material = MakeMaterial(Vector4(0.0f, 1.0f, 0.0f, 1.0f));
 
-    spheres[1].center = spheres[0].center + SUN_DIR * 4.0f; //Vector3(3.5f, 0.0f, -10.0f);
-    spheres[1].center.z -= 1.0f;
-    spheres[1].radius = 1.0f;
+    spheres[1].sphere.center = spheres[0].sphere.center + SUN_DIR * 4.0f; //Vector3(3.5f, 0.0f, -10.0f);
+    spheres[1].sphere.center.z -= 1.0f;
+    spheres[1].sphere.radius = 1.0f;
     spheres[1].material = MakeMaterial(Vector4(1.0f, 0.0f, 0.0f, 1.0f));
 
-    spheres[2].center = Vector3(0.0f, 0.0f, -5.0f);
-    spheres[2].radius = 0.5f;
+    spheres[2].sphere.center = Vector3(0.0f, 0.0f, -5.0f);
+    spheres[2].sphere.radius = 0.5f;
     spheres[2].material = MakeMaterial(Vector4(0.0f, 0.5f, 1.0f, 1.0f));
 
-    spheres[3].center = Vector3(0, -1002, -10);
-    spheres[3].radius = 1000.0f;
+    spheres[3].sphere.center = Vector3(0, -1002, -10);
+    spheres[3].sphere.radius = 1000.0f;
     spheres[3].material = MakeMaterial(Vector4(1, 1, 1, 1));
 
     // LightSource lights[2];
@@ -637,7 +646,7 @@ int main(int argc, char ** argv) {
     // lights[1].color = Vector4(0.5f, 0.5f, 0.5f, 1.0f);
     // lights[1].facing = Normalize(Vector3(10.0f, -2.0f, 0.0f));
 
-    LightSource lights[2];
+    LightSource * lights = (LightSource *)calloc(2, sizeof(LightSource));
     lights[0].type = Light_Directional;
     lights[0].color = Vector4(1, 1, 1, 1);
     lights[0].facing = Vector3(0, -1, 0);
@@ -647,14 +656,35 @@ int main(int argc, char ** argv) {
     lights[1].facing = Normalize(Vector3(10.0f, -2.0f, 0.0f));
 
     Scene scene;
-    scene.spheres = spheres;
-    scene.sphere_count = array_count(spheres);
+    scene.objects = spheres;
+    scene.object_count = 4;
     scene.lights = lights;
-    scene.light_count = array_count(lights);
+    scene.light_count = 2;
+
+    return scene;    
+}
+
+#include "obj_parser.cpp"
+
+int main(int argc, char ** argv) {
+    Mesh * m = ParseOBJ("D:/Users/Bryan/Desktop/meshes/san-miguel/sanMiguel/sanMiguel.obj");
+    return 0;
+
+    InitParams(argc, argv);
+
+    Framebuffer fb;
+    fb.width = 640;
+    fb.height = 480;
+    fb.bytes = (u8 *)calloc(4, fb.width * fb.height);
+    fb.DEBUG_rays_cast = (u32 *)calloc(sizeof(u32), fb.width*fb.height);
+
+    Scene scene = InitScene();
 
     Render(&fb, &scene);
 
     stbi_write_png(gParams.image_output_filename, fb.width, fb.height, 4, fb.bytes, 0);
+
+    float scale = 1.0f / (float)(1 << 16);
 
     s64 total_rays_cast = 0;
     s64 max_rays_cast = 0;
@@ -664,14 +694,12 @@ int main(int argc, char ** argv) {
             total_rays_cast += count;
             max_rays_cast = max(max_rays_cast, count);
 
+            float h = (1.0f - (float)(count * scale)) * 240.0f;
+            Vector4 hsv(h/360.0f, 1.0f, 5.0f, 1.0f);
+            Vector4 rgb = Color_HSVToRGB(hsv);
+
             u32 offset = (y * fb.width + x) * 4;
-            u8 r = (count >> 16) & 0xff; 
-            u8 g = (count >> 8) & 0xff;
-            u8 b = count & 0xff;
-            fb.bytes[offset + 0] = r;
-            fb.bytes[offset + 1] = g;
-            fb.bytes[offset + 2] = b;
-            fb.bytes[offset + 3] = 255;
+            Color_Pack(fb.bytes + offset, rgb);
         }
     }
 

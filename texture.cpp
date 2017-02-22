@@ -18,12 +18,6 @@ const float gOneOver255 = 1.0f / 255.0f;
 const Vector4 gOneOver255V(gOneOver255, gOneOver255, gOneOver255, gOneOver255);
 
 inline Vector4
-Color_sRGBToLinear(Vector4 srgb) {
-    // Not 100% accurate (should be a modified 2.2 power curve), but Good Enough.
-    return srgb * srgb;
-}
-
-inline Vector4
 GetTexel(Texture * texture, u32 x, u32 y) {
     u32 pixel_idx = y * texture->size_y + x;
     u8 r = texture->texels[pixel_idx*4 + 0];
@@ -58,4 +52,32 @@ SampleTextureBilinear(Texture * texture, float u, float v) {
     Vector4 s11 = GetTexel(texture, tx1, ty1);
 
     return Lerp(Lerp(s00, s01, fy), Lerp(s10, s11, fy), fx);
+}
+
+static Texture
+HeightToNormalMap(Texture height_map) {
+    Texture result;
+    result.size_x = height_map.size_x;
+    result.size_y = height_map.size_y;
+    result.texels = (u8 *)calloc(result.size_x * result.size_y, 1);
+
+    for (u32 y = 0; y < result.size_y; ++y) {
+        for (u32 x = 0; x < result.size_x; ++x) {
+            float h00 = GetHeight(&height_map, x, y);
+            float h10 = GetHeight(&height_map, x + 1, y);
+            float h01 = GetHeight(&height_map, x, y + 1);
+
+            Vector3 tx(h10 - h00, 0.0f, 0.0f);
+            Vector3 ty(0.0f, h01 - h00, 0.0f);
+
+            Vector3 norm = Cross(tx, ty);
+
+            norm += Vector3(1.0f, 1.0f, 1.0f);
+            norm *= 1.0f;
+
+            WriteNormal(&result, x, y);
+        }
+    }
+
+    return result;
 }

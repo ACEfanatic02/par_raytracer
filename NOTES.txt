@@ -1,0 +1,26 @@
+2017-02-20
+
+Basic Implementation TODO:
+
+- OBJ / MTL preprocessor
+  - (ノ｀Д´)ノ彡┻━┻
+- Bounding sphere hierarchy construction.
+  - Leaf spheres:  entire objects?  or smaller?
+  - Final data should use relative indices, not pointers; reduces load-time fixup.
+- Traces that deal with alpha properly (especially shadow traces.)  Need to account for
+  texture masks.
+
+Algorithmic changes to investigate:
+
+- Bidirectional path tracing:
+  - Gather light from camera rays.
+  - Emit rays from lights, stop after random bounce, project to screen and accumulate.
+  - Supposedly converges a lot faster?
+- Iterative refinement
+  - Cast one ray per pixel
+  - Calculate local variance per pixel
+  - Shoot extra rays for high-variance pixels, average results
+  - Repeat
+  - May not work well with a tiled renderer?  Would get incorrect variance at tile edges.
+- Tiled may be a bad choice for load balancing, since complex objects tend to cluster.  Odd/even scanlines (or some variant thereof)?
+

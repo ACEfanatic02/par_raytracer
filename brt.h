@@ -25,19 +25,6 @@ typedef intptr_t iptr;
 
 #define GLSL(src) "#version 140\n\n" # src
 
-#ifdef min
-#undef min
-#endif
-#define min(a, b) ((a) < (b) ? (a) : (b))
-
-#ifdef max
-#undef max
-#endif
-#define max(a, b) ((a) > (b) ? (a) : (b))
-
-#define clamp(n, a, b) (min(max(n, a), b))
-#define lerp(a, b, t) ((a) + ((b) - (a))*(t))
-
 #include <cstdio>
 
 #define assert(e) do { if (!(e)) { fprintf(stderr, "[%s:%u] Assert failed: " # e "\n", __FILE__, __LINE__); __debugbreak(); } } while(0)
