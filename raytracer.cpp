@@ -1,13 +1,14 @@
 // raytracer.cpp - Simple Raytracer
 // Bryan Taylor 2/18/2017
+#include "brt.h"
 #include <stdlib.h>
 #include <float.h>
-#include "brt.h"
 #include "mathlib.h"
 #include "color.h"
 #include "random.h"
 #include "mesh.h"
 #include "geometry.h"
+#include "timing.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "lib/stb_image_write.h"
@@ -59,8 +60,67 @@ struct Material {
     // TODO(bryan): Texture maps
 };
 
+enum LightSourceType {
+    Light_Directional,
+    // Light_Spot,
+    Light_Point,
+};
+
+struct LightSource {
+    LightSourceType type;
+    Vector4 color;
+    Vector3 position;
+    Vector3 facing;
+    float falloff;
+};
+
+enum ObjectType {
+    ObjectType_Sphere,
+    ObjectType_MeshGroup,
+};
+
+struct SceneObject {
+    struct {
+        Sphere sphere;
+        MeshGroup * mesh_group;
+        Mesh * mesh;
+    };
+    ObjectType type;
+    Material * material;
+};
+
+struct Scene {
+    std::vector<SceneObject *> objects;
+    BoundingHierarchy * hierarchy;
+    LightSource * lights;
+    u32 light_count;
+    Material * default_mat;
+};
+
+// struct TriangleHitParams {
+//     float t;
+//     // Barycentric coordinates (used for vertex attribute interpolation):
+//     float u;
+//     float v;
+//     float w;
+
+//     Vector3 normal;
+// };
+
+struct RaycastHit {
+    float t;
+    // Barycenteric coordinates (for triangles)
+    Vector3 bw;
+    // Index into index buffer for triangle's first vertex.
+    u32 vertex0;
+
+    Vector3 position;
+    Vector3 normal;
+    SceneObject * object;
+};
+
 static bool 
-IntersectRaySphere(Ray ray, Sphere sphere, float * t) {
+IntersectRaySphere(Ray ray, Sphere sphere, RaycastHit * out_hit) {
     // Adapted from Ericson, Real-Time Collision Detection, pg 178
     Vector3 m = ray.origin - sphere.center;
     // Are we pointing at the sphere?
@@ -79,23 +139,39 @@ IntersectRaySphere(Ray ray, Sphere sphere, float * t) {
         return false;
     }
 
-    // Mark hit t and return.
-    *t = -b - sqrtf(discriminant);
+    float t = -b - sqrtf(discriminant);
+    if (t < 0.0f) t = 0.0f;
+    Vector3 p = ray.direction * t;
+    out_hit->t = t;
+    out_hit->position = p;
+    out_hit->normal = Normalize(p - sphere.center);
     return true;
 }
 
-struct TriangleHitParams {
-    float t;
-    // Barycentric coordinates (used for vertex attribute interpolation):
-    float u;
-    float v;
-    float w;
+static bool
+TestRaySphere(Ray ray, Sphere sphere) {
+    static const float epsilon = 1e-4;
+    Vector3 m = ray.origin - sphere.center;
+    // Is the origin of the ray inside the sphere?
+    float c = Dot(m, m) - sphere.radius * sphere.radius;
 
-    Vector3 normal;
-};
+    if (c <= 0.0f) return true;
+    // Are we pointing at the sphere?
+    float b = Dot(m, ray.direction);
+
+    // This is COMPLETELY WRONG, yet it fixes the raycast used
+    // for object pruning.  What.
+    if (b < 0.0f) return false;
+
+    float discriminant = b*b - c;
+    // Ray misses the sphere.
+    if (discriminant < 0.0f) return false;
+
+    return true;
+}
 
 static bool
-IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, TriangleHitParams * hit) {
+IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, RaycastHit * out_hit) {
     // Adapted from Ericson, Real-Time Collision Detection, pg 191
     Vector3 ab = b - a;
     Vector3 ac = c - a;
@@ -124,102 +200,55 @@ IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, TriangleHitParams
     if (w < 0.0f || (v + w) > d) return false;
 
     float ood = 1.0f / d;
-    hit->t = t * ood;
-    hit->v = v * ood;
-    hit->w = w * ood;
-    hit->u = 1.0f - hit->v - hit->w;
-    hit->normal = normal;
+    out_hit->t = t * ood;
+    out_hit->bw.y = v * ood;
+    out_hit->bw.z = w * ood;
+    out_hit->bw.x = 1.0f - out_hit->bw.y - out_hit->bw.z;
+    out_hit->position = ray.direction * out_hit->t;
+    out_hit->normal = Normalize(normal);
 
     return true;
 }
 
 static bool
-IntersectRayMesh(Ray ray, MeshGroup * mesh_group, Mesh * mesh, TriangleHitParams * hit_params_out) {
+IntersectRayMesh(Ray ray, SceneObject * obj, RaycastHit * out_hit) {
+    assert(obj->type == ObjectType_MeshGroup);
+    MeshGroup * mesh_group = obj->mesh_group;
+    Mesh * mesh = obj->mesh;
+
     bool hit = false;
-    TriangleHitParams best_hit;
+    RaycastHit best_hit = { FLT_MAX };
     for (u32 i = 0; i < mesh_group->idx_positions.size(); i += 3) {
-        u32 idx_a = mesh_group->idx_positions[0];
-        u32 idx_b = mesh_group->idx_positions[1];
-        u32 idx_c = mesh_group->idx_positions[2];
+        u32 idx_a = mesh_group->idx_positions[i + 0];
+        u32 idx_b = mesh_group->idx_positions[i + 1];
+        u32 idx_c = mesh_group->idx_positions[i + 2];
 
         Vector3 pa = mesh->positions[idx_a];
         Vector3 pb = mesh->positions[idx_b];
         Vector3 pc = mesh->positions[idx_c];
 
-        TriangleHitParams hit_params;
-        if (IntersectRayTriangle(ray, pa, pb, pc, &hit_params)) {
-            if (hit_params.t < best_hit.t) {
-                best_hit = hit_params;
+        RaycastHit current_hit;
+        if (IntersectRayTriangle(ray, pa, pb, pc, &current_hit)) {
+            current_hit.vertex0 = i;
+            current_hit.object = obj;
+            if (current_hit.t < best_hit.t) {
+                best_hit = current_hit;
+                hit = true;
             }
         }
     }
-    if (hit_params_out) *hit_params_out = best_hit;
+    if (out_hit) *out_hit = best_hit;
     return hit;
 }
 
-enum LightSourceType {
-    Light_Directional,
-    // Light_Spot,
-    Light_Point,
-};
-
-struct LightSource {
-    LightSourceType type;
-    Vector4 color;
-    Vector3 position;
-    Vector3 facing;
-    float falloff;
-};
-
-struct Framebuffer {
-    u8 * bytes;
-    u32 width;
-    u32 height;
-    u32 * DEBUG_rays_cast;
-};
-
-static void
-WriteColor(Framebuffer * fb, u32 x, u32 y, float r, float g, float b, float a) {
-    Vector4 c(Color_LinearToSRGB(r),
-              Color_LinearToSRGB(g),
-              Color_LinearToSRGB(b),
-              Color_LinearToSRGB(a));
-
-    u32 offset = (y * fb->width + x) * 4;
-    Color_Pack(fb->bytes + offset, c);
-}
-
-enum ObjectType {
-    ObjectType_Sphere,
-    ObjectType_MeshGroup,
-};
-
-struct SceneObject {
-    struct {
-        Sphere sphere;
-        MeshGroup * mg;
-        Mesh * mesh;
-    };
-    ObjectType type;
-    Material * material;
-};
-
-struct Scene {
-    SceneObject * objects;
-    u32 object_count;
-    BoundingHierarchy * hierarchy;
-    LightSource * lights;
-    u32 light_count;
-};
-
 static bool
-TraceRay(Ray ray, Scene * scene, SceneObject ** hit_object, float * hit_t) {
+TraceRay(Ray ray, Scene * scene, RaycastHit * out_hit) {
     gRayCount++;
     // Bias ray
     ray.origin += ray.direction * gParams.ray_bias;
 
     bool hit = false;
-    float best_t = FLT_MAX;
+    RaycastHit best_hit = { FLT_MAX };
 #if 0
     for (u32 i = 0; i < scene->object_count; ++i) {
         SceneObject * o = scene->objects + i;
@@ -238,43 +267,39 @@ TraceRay(Ray ray, Scene * scene, SceneObject ** hit_object, float * hit_t) {
 
     std::vector<u32> check_spheres;
     check_spheres.push_back(0);
-    std::vector<MeshGroup *> check_meshes;
+    std::vector<u32> check_meshes;
     while (check_spheres.size() > 0) {
         u32 i = check_spheres.back();
         check_spheres.pop_back();
         BoundingSphere s = scene->hierarchy->spheres[i];
-        float t;
-        if (IntersectRaySphere(ray, s.s, &t)) {
+        RaycastHit sphere_test_hit;
+        // if (IntersectRaySphere(ray, s.s, &sphere_test_hit)) {
+        if (TestRaySphere(ray, s.s)) 
+        {
             if (s.c0 && s.c1) {
+                // TODO(bryan):  Insert closest sphere to ray origin first.
                 check_spheres.push_back(s.c0);
                 check_spheres.push_back(s.c1);
             }
             else {
-                check_meshes.push_back(scene->hierarchy->mesh_groups[i]);
+                assert(s.c0 == 0 && s.c1 == 0);
+                check_meshes.push_back(i);
             }
         }
     }
 
-    SceneObject * best_object = (SceneObject *)calloc(1, sizeof(SceneObject));
-    best_object->type = ObjectType_MeshGroup;
-    TriangleHitParams best_hit_params;
     for (u32 i = 0; i < check_meshes.size(); ++i) {
-        float t;
-        TriangleHitParams hit_params;
-        #if 0
-        if (IntersectRayMesh(ray, check_meshes[i], &hit_params)) {
-            if (hit_params.t < best_hit_params.best_t) {
-                best_object->mesh_group = check_meshes[i];
-                best_object->mesh = scene->hierarchy->mesh;
-                best_hit_params = hit_params;
+        RaycastHit current_hit;
+        SceneObject * obj = scene->objects[check_meshes[i]];
+        if (IntersectRayMesh(ray, obj, &current_hit)) {
+            if (current_hit.t < best_hit.t) {
+                best_hit = current_hit;
                 hit = true;
             }
         }
-        #endif
     }
 
-    if (hit_object) *hit_object = best_object;
-    if (hit_t) *hit_t = best_t;
+    if (out_hit) *out_hit = best_hit;
     return hit;
 }
 
@@ -390,18 +415,18 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
     Vector3 light_vector = shadow_ray.direction;
     switch (light->type) {
         case Light_Directional: {
-            if (!TraceRay(shadow_ray, scene, NULL, NULL)) {
+           //if (!TraceRay(shadow_ray, scene, NULL)) {
                 float spec_cos = Dot(view_ray.direction * -1.0f, Reflect(light_vector, normal));
                 result.direct_diffuse = light->color * 2.0f * max(0.0f, Dot(normal, light_vector));
                 result.direct_specular = light->color * powf(max(0.0f, spec_cos), specular_intensity);
-            }
+           //}
         } break;
         case Light_Point: {
             Vector3 d = light->position - position;
             float light_dist_sq = Dot(d, d);
-            float hit_t;
+            RaycastHit hit;
             // No hit, *or* nearest hit is beyond the light itself
-            if (!TraceRay(shadow_ray, scene, NULL, &hit_t) || hit_t*hit_t <= light_dist_sq) {
+            if (!TraceRay(shadow_ray, scene, &hit) || hit.t*hit.t <= light_dist_sq) {
                 // Distance attenuation
                 float falloff_denom = (sqrtf(light_dist_sq) / light->falloff) + 1.0f;
                 Vector4 light_color = light->color * (1.0f / (falloff_denom*falloff_denom));
@@ -421,13 +446,12 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
 static Vector4
 TraceRayColor(Ray ray, Scene * scene, s32 iters) {
     Vector4 color = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
-    SceneObject * best_object;
-    float best_t;
-    if (TraceRay(ray, scene, &best_object, &best_t)) {
+    RaycastHit hit;
+    if (TraceRay(ray, scene, &hit)) {
         // Shade pixel
-        Vector3 hit_p = ray.origin + ray.direction * best_t;
-        Vector3 hit_normal = Normalize(hit_p - best_object->sphere.center);
-        Material * mat = best_object->material;
+        Vector3 hit_p = hit.position + hit.normal * gParams.ray_bias;
+        Vector3 hit_normal = hit.normal;
+        Material * mat = hit.object->material;
 
         Vector4 direct_light;
         Vector4 direct_specular_light;
@@ -459,7 +483,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
             indirect_specular_light /= gParams.spec_samples;
         }
 
-        float object_reflectivity = 0.25f;// TODO
+        float object_reflectivity = 0.05f;// TODO
         float fresnel = FresnelAmount(1.0f, mat->index_of_refraction, hit_normal, ray.direction);
         float w_reflect = (object_reflectivity + (1.0f - object_reflectivity) * fresnel);
         float w_diffuse = 1.0f - w_reflect;
@@ -469,11 +493,41 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         color += (indirect_specular_light + direct_specular_light) * mat->specular_color * w_reflect;
 
         color /= PI32;
+        color = Color_FromNormal(hit_normal);
+        if (hit.object->type == ObjectType_MeshGroup) {
+            Vector3 interp_normal;
+            u32 idx = hit.vertex0;
+            MeshGroup * mg = hit.object->mesh_group;
+            Mesh * mesh = hit.object->mesh;
+
+            interp_normal += mesh->normals[mg->idx_normals[idx + 0]] * hit.bw.x;
+            interp_normal += mesh->normals[mg->idx_normals[idx + 1]] * hit.bw.y;
+            interp_normal += mesh->normals[mg->idx_normals[idx + 2]] * hit.bw.z;
+            color = Color_FromNormal(interp_normal);
+        }
     }
     else {
         color = gParams.background_color;
     }
     return color;
+}
+
+struct Framebuffer {
+    u8 * bytes;
+    u32 width;
+    u32 height;
+    u32 * DEBUG_rays_cast;
+};
+
+static void
+WriteColor(Framebuffer * fb, u32 x, u32 y, float r, float g, float b, float a) {
+    Vector4 c(Color_LinearToSRGB(r),
+              Color_LinearToSRGB(g),
+              Color_LinearToSRGB(b),
+              Color_LinearToSRGB(a));
+
+    u32 offset = (y * fb->width + x) * 4;
+    Color_Pack(fb->bytes + offset, c);
 }
 
 struct Camera {
@@ -492,38 +546,60 @@ MakeCamera(float fov, Framebuffer * fb) {
         (float)fb->width / (float)fb->height,
         1.0f / fb->width,
         1.0f / fb->height,
-        Matrix33_FromToRotation(Vector3(0.0f, 0.0f, -1.0f), gParams.camera_facing),
+        Matrix33_FromToRotation(Vector3(0.0f, 0.0f, 1.0f), gParams.camera_facing),
     };
+
+    Vector3 l = gParams.camera_facing;
+    Vector3 up(0, 1, 0);
+
+    Vector3 s = Cross(l, up);
+    Vector3 u = Cross(s, l);
+
+    cam.world_from_cam(0, 0) = s.x;
+    cam.world_from_cam(1, 0) = s.y;
+    cam.world_from_cam(2, 0) = s.z;
+    cam.world_from_cam(0, 1) = u.x;
+    cam.world_from_cam(1, 1) = u.y;
+    cam.world_from_cam(2, 1) = u.z;
+    cam.world_from_cam(0, 2) = -l.x;
+    cam.world_from_cam(1, 2) = -l.y;
+    cam.world_from_cam(2, 2) = -l.z;
 
     return cam;
 }
 
 inline Ray
 MakeCameraRay(Camera * cam, Vector2 origin) {
-    float rx = (2.0f * origin.x * cam->inv_width - 1.0f) * cam->tan_a2 * cam->aspect;
-    float ry = (1.0f - 2.0f * origin.y * cam->inv_height) * cam->tan_a2;
-    Vector3 dir = Normalize(Vector3(rx, ry, -1.0f));
+    float rx = (2.0f * (origin.x + 0.5f) * cam->inv_width - 1.0f) * cam->tan_a2 * cam->aspect;
+    float ry = (1.0f - 2.0f * (origin.y + 0.5f) * cam->inv_height) * cam->tan_a2;
+    Vector3 dir = Normalize(Vector3(rx, ry, 1.0f));
 
     Ray ray;
     // TODO(bryan):  This may not be quite correct?
     ray.origin = gParams.camera_position;
-    ray.direction = cam->world_from_cam * dir;
+    ray.direction = Normalize(cam->world_from_cam * dir) * -1.0f;
     return ray;
 }
 
 Vector2 SSAA_Offsets[] = {
+#if 1
     // Four Rooks / Rotated Grid sampling pattern.
     Vector2(-0.375f,  0.125f),
     Vector2( 0.125f,  0.375f),
     Vector2( 0.375f, -0.125f),
     Vector2(-0.125f,  0.375f),
+#else
+    Vector2(0, 0)
+#endif
 };
 
 static void
 Render(Framebuffer * fb, Scene * scene) {
     Camera cam = MakeCamera(gParams.camera_fov, fb);
     for (u32 y = 0; y < fb->height; ++y) {
+        // TIME_BLOCK("render row");
         for (u32 x = 0; x < fb->width; ++x) {
+            // TIME_BLOCK("render pixel");
             gRayCount = 0;
             Vector4 color;
             // Super-sampled anti-aliasing
@@ -602,10 +678,12 @@ InitParams(int argc, char ** argv) {
     gParams.reflection_samples = 8;
     gParams.spec_samples = 8;
     gParams.bounce_depth = 2;
-    gParams.background_color = Vector4(0.0f, 0.0f, 0.0f, 1.0f);
+    gParams.background_color = Vector4(0.0f, 0.3f, 0.5f, 1.0f);
     gParams.camera_fov = 60.0f;
-    gParams.camera_position = Vector3(0.0f, 15.0f, 10.0f);
-    gParams.camera_facing = Normalize(Vector3(0.0f, -0.5f, -1));
+    // gParams.camera_position = Vector3(0.0f, 15.0f, 10.0f);
+    // gParams.camera_facing = Normalize(Vector3(0.0f, -0.5f, -1));
+    gParams.camera_position = Vector3(20.0f, 100.0f, 0.0f);
+    gParams.camera_facing = Normalize(Vector3(1.0f, 0.0f, 0.0f));
     gParams.image_output_filename = strdup("rt_out.png"); // Need this to be on the heap; might be free'd later.
     gParams.use_system_rand = 0;
 
@@ -715,47 +793,69 @@ InitScene() {
     lights[0].type = Light_Directional;
     lights[0].color = Vector4(1, 1, 1, 1);
     lights[0].facing = Vector3(0, -1, 0);
+
     lights[1].type = Light_Directional;
-    // lights[1].color = Vector4(0.0f, 0.5f, 0.5f, 1.0f);
     lights[1].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    lights[1].facing = Normalize(Vector3(10.0f, -2.0f, 0.0f));
+    lights[1].facing = Normalize(Vector3(1.0f, -1.0f, 0.0f));
 
     Scene scene;
-    scene.objects = spheres;
-    scene.object_count = 4;
+    // scene.objects = spheres;
+    // scene.object_count = 4;
     scene.lights = lights;
-    scene.light_count = 2;
+    scene.light_count = 1;
 
     return scene;    
 }
 
-#include "timing.h"
-
 int main(int argc, char ** argv) {
     Mesh * mesh;
     BoundingHierarchy hierarchy;
+    Matrix33 transform = Matrix33_FromEuler(0.0f, 0.0f, PI32);
+    transform.SetIdentity();
     {
         TIME_BLOCK("Load Mesh");
         // mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/san-miguel/sanMiguel/sanMiguel.obj");
-        mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/crytek-sponza/sponza.obj");
+        mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/crytek-sponza/sponza.obj", transform);
     }
     {
         TIME_BLOCK("Build Hierarchy");
         BuildHierarchy(&hierarchy, mesh);
     }
 
-    __debugbreak();
-    return 0;
-
     InitParams(argc, argv);
+    gParams.camera_position = hierarchy.spheres[0].s.center;
+    gParams.camera_position.z -= 200.0f;
+    gParams.camera_position.x += 500.0f;
+    gParams.camera_position.y *= 0.25f;
 
     Framebuffer fb;
-    fb.width = 640;
-    fb.height = 480;
+    // fb.width = 640;
+    // fb.height = 480;
+    fb.width = 128;
+    fb.height = 96;
     fb.bytes = (u8 *)calloc(4, fb.width * fb.height);
     fb.DEBUG_rays_cast = (u32 *)calloc(sizeof(u32), fb.width*fb.height);
 
+    u32 total_tris = 0;
     Scene scene = InitScene();
+    scene.hierarchy = &hierarchy;
+    // TODO(bryan):  We need to actually load materials.  In the meantime, give everything a default
+    // so that we can just test the loading / mesh tracing.
+    scene.default_mat = MakeMaterial(Vector4(0.75f, 0.5f, 0.75f, 1.0f));
+    for (u32 i = 0; i < hierarchy.mesh_groups.size(); ++i) {
+        MeshGroup * mg = hierarchy.mesh_groups[i];
+        if (mg) {
+            total_tris += mg->idx_positions.size() / 3;
+        }
+        SceneObject * obj = (SceneObject *)calloc(1, sizeof(SceneObject));
+        obj->mesh_group = mg;
+        obj->mesh = mesh;
+        obj->type = ObjectType_MeshGroup;
+        obj->material = scene.default_mat;
+
+        scene.objects.push_back(obj);
+    }
+    printf("Triangles: %u\n", total_tris);
 
     Render(&fb, &scene);
 

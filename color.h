@@ -84,3 +84,8 @@ Color_Pack(u8 * p, Vector4 c) {
     p[2] = (u8)(Clamp(c.z, 0.0f, 1.0f) * 255.0f);
     p[3] = (u8)(Clamp(c.w, 0.0f, 1.0f) * 255.0f);
 }
+
+inline Vector4
+Color_FromNormal(Vector3 n) {
+    return (Vector4(n.x, n.y, n.z, 1.0f) + Vector4(1.0f, 1.0f, 1.0f, 1.0f)) * 0.5f;
+}

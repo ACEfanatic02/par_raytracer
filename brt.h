@@ -27,7 +27,9 @@ typedef intptr_t iptr;
 
 #include <cstdio>
 
-#define assert(e) do { if (!(e)) { fprintf(stderr, "[%s:%u] Assert failed: " # e "\n", __FILE__, __LINE__); __debugbreak(); } } while(0)
+#define assert(e) ASSERT(e)
+#define ASSERT(e) do { if (!(e)) { fprintf(stderr, "[%s:%u] Assert failed: " # e "\n", __FILE__, __LINE__); __debugbreak(); } } while(0)
+
 
 #define array_count(a) (sizeof((a)) / sizeof((a)[0]))
 

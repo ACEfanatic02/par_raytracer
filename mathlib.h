@@ -721,6 +721,7 @@ Matrix33_FromToRotation(Vector3 from, Vector3 to) {
 
     const float epsilon = 1e-7;
     if (st < epsilon) {
+        printf("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n");
         Matrix33 result;
         result.SetIdentity();
         return result;

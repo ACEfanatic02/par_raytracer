@@ -160,7 +160,7 @@ ReadFace(Mesh * mesh, MeshGroup * group, char * cur) {
 #define STATIC_STRNCMP(_static, _dynamic) (!strncmp(_static, _dynamic, array_count(_static) - 1))
 
 static Mesh *
-ParseOBJ(char * filename) {
+ParseOBJ(char * filename, Matrix33 transform) {
     // Load file into buffer (TODO(bryan):  We'd really like some way of doing
     // this incrementally, if we're going to use the larger models.)
     FILE * fp = fopen(filename, "rb");
@@ -186,7 +186,7 @@ ParseOBJ(char * filename) {
                 switch (*cur) {
                     case ' ': {
                         // Vertex position
-                        mesh->positions.push_back(ReadVector3(cur + 1));
+                        mesh->positions.push_back(transform * ReadVector3(cur + 1));
                     } break;
                     case 't': {
                         // Vertex texcoord
@@ -194,7 +194,7 @@ ParseOBJ(char * filename) {
                     } break;
                     case 'n': {
                         // Vertex normal
-                        mesh->normals.push_back(ReadVector3(cur + 1));
+                        mesh->normals.push_back(transform * ReadVector3(cur + 1));
                     } break;
                 }
             } break;
