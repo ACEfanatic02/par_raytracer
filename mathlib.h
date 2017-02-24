@@ -38,13 +38,13 @@ struct Vector2 {
         Set(x, y);
     }
 
-    Vector2(Vector2& v) {
+    Vector2(const Vector2& v) {
         Set(v.x, v.y);
     }
 
 #define VEC_MUTOP_V(op) \
     inline Vector2& \
-    operator##op (Vector2 v) {\
+    operator op (Vector2 v) {\
         Set(x op v.x, y op v.y);\
         return *this;\
     }
@@ -75,7 +75,7 @@ operator!=(Vector2 a, Vector2 b) {
 
 #define VEC_BINOP_V(op) \
 inline Vector2 \
-operator##op (Vector2 a, Vector2 b) {\
+operator op (Vector2 a, Vector2 b) {\
     return Vector2(a.x op b.x, a.y op b.y);\
 }
 
@@ -142,7 +142,7 @@ struct Vector3 {
 
 #define VEC_MUTOP_V(op) \
     inline Vector3& \
-    operator##op (Vector3 v) {\
+    operator op (Vector3 v) {\
         Set(x op v.x, y op v.y, z op v.z);\
         return *this;\
     }
@@ -186,7 +186,7 @@ operator!=(Vector3 a, Vector3 b) {
 
 #define VEC_BINOP_V(op) \
 inline Vector3 \
-operator##op (Vector3 a, Vector3 b) {\
+operator op (Vector3 a, Vector3 b) {\
     return Vector3(a.x op b.x, a.y op b.y, a.z op b.z);\
 }
 
@@ -258,7 +258,7 @@ struct Vector4 {
 
 #define VEC_MUTOP_V(op) \
     inline Vector4& \
-    operator##op (Vector4 v) {\
+    operator op (Vector4 v) {\
         Set(x op v.x, y op v.y, z op v.z, w op v.w);\
         return *this;\
     }
@@ -303,7 +303,7 @@ operator!=(Vector4 a, Vector4 b) {
 
 #define VEC_BINOP_V(op) \
 inline Vector4 \
-operator##op (Vector4 a, Vector4 b) {\
+operator op (Vector4 a, Vector4 b) {\
     return Vector4(a.x op b.x, a.y op b.y, a.z op b.z, a.w op b.w);\
 }
 
