@@ -17,6 +17,8 @@
 #include "bsphere.cpp"
 
 static u32 gRayCount;
+static u64 gSpheresChecked;
+static u64 gMeshesChecked;
 
 struct {
     float ray_bias;
@@ -97,16 +99,6 @@ struct Scene {
     Material * default_mat;
 };
 
-// struct TriangleHitParams {
-//     float t;
-//     // Barycentric coordinates (used for vertex attribute interpolation):
-//     float u;
-//     float v;
-//     float w;
-
-//     Vector3 normal;
-// };
-
 struct RaycastHit {
     float t;
     // Barycenteric coordinates (for triangles)
@@ -121,6 +113,7 @@ struct RaycastHit {
 
 static bool 
 IntersectRaySphere(Ray ray, Sphere sphere, RaycastHit * out_hit) {
+    gSpheresChecked++;
     // Adapted from Ericson, Real-Time Collision Detection, pg 178
     Vector3 m = ray.origin - sphere.center;
     // Are we pointing at the sphere?
@@ -159,8 +152,6 @@ TestRaySphere(Ray ray, Sphere sphere) {
     // Are we pointing at the sphere?
     float b = Dot(m, ray.direction);
 
-    // This is COMPLETELY WRONG, yet it fixes the raycast used
-    // for object pruning.  What.
     if (b > 0.0f) return false;
 
     float discriminant = b*b - c;
@@ -179,9 +170,7 @@ IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, RaycastHit * out_
     Vector3 q = ray.origin + ray.direction;
     Vector3 qp = ray.origin - q;
 
-    // TODO(bryan):  We don't need to recalculate this every time.
     Vector3 normal = Cross(ab, ac);
-
     float d = Dot(qp, normal);
     if (d <= 0.0f) {
         return false;
@@ -191,6 +180,10 @@ IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, RaycastHit * out_
     float t = Dot(ap, normal);
 
     if (t < 0.0f) {
+        return false;
+    }
+    // We're closer than the t value passed in, so the caller doesn't care about this hit.
+    if (t > out_hit->t * d) {
         return false;
     }
 
@@ -215,12 +208,14 @@ IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, RaycastHit * out_
 
 static bool
 IntersectRayMesh(Ray ray, SceneObject * obj, RaycastHit * out_hit) {
+    gMeshesChecked++;
     assert(obj->type == ObjectType_MeshGroup);
     MeshGroup * mesh_group = obj->mesh_group;
     Mesh * mesh = obj->mesh;
 
     bool hit = false;
-    RaycastHit best_hit = { FLT_MAX };
+    float max_t = out_hit ? out_hit->t : FLT_MAX;
+    RaycastHit best_hit = { max_t };
     for (u32 i = 0; i < mesh_group->idx_positions.size(); i += 3) {
         u32 idx_a = mesh_group->idx_positions[i + 0];
         u32 idx_b = mesh_group->idx_positions[i + 1];
@@ -230,7 +225,7 @@ IntersectRayMesh(Ray ray, SceneObject * obj, RaycastHit * out_hit) {
         Vector3 pb = mesh->positions[idx_b];
         Vector3 pc = mesh->positions[idx_c];
 
-        RaycastHit current_hit;
+        RaycastHit current_hit = { best_hit.t };
         if (IntersectRayTriangle(ray, pa, pb, pc, &current_hit)) {
             current_hit.vertex0 = i;
             current_hit.object = obj;
@@ -252,52 +247,61 @@ TraceRay(Ray ray, Scene * scene, RaycastHit * out_hit) {
 
     bool hit = false;
     RaycastHit best_hit = { FLT_MAX };
-#if 0
-    for (u32 i = 0; i < scene->object_count; ++i) {
-        SceneObject * o = scene->objects + i;
-        float t;
-        if (o->type == ObjectType_Sphere) {
-            if (IntersectRaySphere(ray, o->sphere, &t)) {
-                if (t < best_t) {
-                    best_object = o;
-                    best_t = t;
-                    hit = true;
-                }
-            }
-        }
-    }
-#endif
 
     std::vector<u32> check_spheres;
     check_spheres.push_back(0);
-    std::vector<u32> check_meshes;
     while (check_spheres.size() > 0) {
         u32 i = check_spheres.back();
         check_spheres.pop_back();
         BoundingSphere s = scene->hierarchy->spheres[i];
         RaycastHit sphere_test_hit;
-        // if (IntersectRaySphere(ray, s.s, &sphere_test_hit)) {
-        if (TestRaySphere(ray, s.s)) 
-        {
+        if (IntersectRaySphere(ray, s.s, &sphere_test_hit)) {
+            if (sphere_test_hit.t > best_hit.t) {
+                // We've already seen a closer hit, no need to check
+                // this node's children.
+                continue;
+            }
             if (s.c0 && s.c1) {
-                // TODO(bryan):  Insert closest sphere to ray origin first.
+#if 1
+                BoundingSphere s0 = scene->hierarchy->spheres[s.c0];
+                BoundingSphere s1 = scene->hierarchy->spheres[s.c1];
+                Vector3 v0 = ray.origin - s0.s.center;
+                Vector3 v1 = ray.origin - s1.s.center;
+                float lv0_sq = Dot(v0, v0);
+                float lv1_sq = Dot(v1, v1);
+
+                // We insert the closest sphere first; this increases
+                // our chances of culling the other sphere without 
+                // checking its children.
+                //
+                // This doesn't take into account each sphere's radius, 
+                // but that computation may not be worth the effort?
+                if (lv0_sq < lv1_sq) {
+                    check_spheres.push_back(s.c0);
+                    check_spheres.push_back(s.c1);
+                }
+                else {
+                    check_spheres.push_back(s.c1);                    
+                    check_spheres.push_back(s.c0);
+                }
+#else
                 check_spheres.push_back(s.c0);
                 check_spheres.push_back(s.c1);
+#endif
             }
             else {
                 assert(s.c0 == 0 && s.c1 == 0);
-                check_meshes.push_back(i);
-            }
-        }
-    }
-
-    for (u32 i = 0; i < check_meshes.size(); ++i) {
-        RaycastHit current_hit;
-        SceneObject * obj = scene->objects[check_meshes[i]];
-        if (IntersectRayMesh(ray, obj, &current_hit)) {
-            if (current_hit.t < best_hit.t) {
-                best_hit = current_hit;
-                hit = true;
+                // We've hit a leaf sphere, try intersecting its mesh
+                {
+                    RaycastHit current_hit = { best_hit.t };
+                    SceneObject * obj = scene->objects[i];
+                    if (IntersectRayMesh(ray, obj, &current_hit)) {
+                        if (current_hit.t < best_hit.t) {
+                            best_hit = current_hit;
+                            hit = true;
+                        }
+                    }                    
+                }
             }
         }
     }
@@ -418,11 +422,11 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
     Vector3 light_vector = shadow_ray.direction;
     switch (light->type) {
         case Light_Directional: {
-           //if (!TraceRay(shadow_ray, scene, NULL)) {
+           if (!TraceRay(shadow_ray, scene, NULL)) {
                 float spec_cos = Dot(view_ray.direction * -1.0f, Reflect(light_vector, normal));
                 result.direct_diffuse = light->color * 2.0f * max(0.0f, Dot(normal, light_vector));
                 result.direct_specular = light->color * powf(max(0.0f, spec_cos), specular_intensity);
-           //}
+           }
         } break;
         case Light_Point: {
             Vector3 d = light->position - position;
@@ -495,19 +499,19 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         color += (indirect_light + direct_light) * mat->diffuse_color * w_diffuse;
         color += (indirect_specular_light + direct_specular_light) * mat->specular_color * w_reflect;
 
-        color /= PI32;
-        color = Color_FromNormal(hit_normal);
-        if (hit.object->type == ObjectType_MeshGroup) {
-            Vector3 interp_normal;
-            u32 idx = hit.vertex0;
-            MeshGroup * mg = hit.object->mesh_group;
-            Mesh * mesh = hit.object->mesh;
+        // color /= PI32;
+        // color = Color_FromNormal(hit_normal);
+        // if (hit.object->type == ObjectType_MeshGroup) {
+        //     Vector3 interp_normal;
+        //     u32 idx = hit.vertex0;
+        //     MeshGroup * mg = hit.object->mesh_group;
+        //     Mesh * mesh = hit.object->mesh;
 
-            interp_normal += mesh->normals[mg->idx_normals[idx + 0]] * hit.bw.x;
-            interp_normal += mesh->normals[mg->idx_normals[idx + 1]] * hit.bw.y;
-            interp_normal += mesh->normals[mg->idx_normals[idx + 2]] * hit.bw.z;
-            color = Color_FromNormal(hit_normal);
-        }
+        //     interp_normal += mesh->normals[mg->idx_normals[idx + 0]] * hit.bw.x;
+        //     interp_normal += mesh->normals[mg->idx_normals[idx + 1]] * hit.bw.y;
+        //     interp_normal += mesh->normals[mg->idx_normals[idx + 2]] * hit.bw.z;
+        //     color = Color_FromNormal(hit_normal);
+        // }
     }
     else {
         color = gParams.background_color;
@@ -593,8 +597,10 @@ Vector2 SSAA_Offsets[] = {
 
 static void
 Render(Camera * cam, Framebuffer * fb, Scene * scene) {
+    gSpheresChecked = 0;
+    gMeshesChecked = 0;
     for (u32 y = 0; y < fb->height; ++y) {
-        // TIME_BLOCK("render row");
+        // TIME_BLOCK("Render Row");
         for (u32 x = 0; x < fb->width; ++x) {
             // TIME_BLOCK("render pixel");
             gRayCount = 0;
@@ -610,6 +616,12 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
             fb->DEBUG_rays_cast[x + y * fb->width] = gRayCount;
         }
     }
+
+    u32 pixel_count = fb->height*fb->width;
+    printf("Spheres checked:    %llu\n", gSpheresChecked);
+    printf("   average / pixel: %f\n", (double)gSpheresChecked / pixel_count);
+    printf("Meshes checked:     %llu\n", gMeshesChecked);
+    printf("   average / pixel: %f\n", (double)gMeshesChecked / pixel_count);
 }
 
 static void
@@ -758,34 +770,6 @@ MakeMaterial(Vector4 color) {
 
 static Scene
 InitScene() {
-    Vector3 SUN_DIR = Normalize(Vector3(1.0f, 0.5f, 1.0f));
-    SceneObject * spheres = (SceneObject *)calloc(4, sizeof(SceneObject));
-    spheres[0].sphere.center = Vector3(0.0f, 0.0f, -10.0f);
-    spheres[0].sphere.radius = 2.0f;
-    spheres[0].material = MakeMaterial(Vector4(0.0f, 1.0f, 0.0f, 1.0f));
-
-    spheres[1].sphere.center = spheres[0].sphere.center + SUN_DIR * 4.0f; //Vector3(3.5f, 0.0f, -10.0f);
-    spheres[1].sphere.center.z -= 1.0f;
-    spheres[1].sphere.radius = 1.0f;
-    spheres[1].material = MakeMaterial(Vector4(1.0f, 0.0f, 0.0f, 1.0f));
-
-    spheres[2].sphere.center = Vector3(0.0f, 0.0f, -5.0f);
-    spheres[2].sphere.radius = 0.5f;
-    spheres[2].material = MakeMaterial(Vector4(0.0f, 0.5f, 1.0f, 1.0f));
-
-    spheres[3].sphere.center = Vector3(0, -1002, -10);
-    spheres[3].sphere.radius = 1000.0f;
-    spheres[3].material = MakeMaterial(Vector4(1, 1, 1, 1));
-
-    // LightSource lights[2];
-    // lights[0].type = Light_Directional;
-    // lights[0].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    // lights[0].facing = SUN_DIR * -1.0f;
-
-    // lights[1].type = Light_Directional;
-    // lights[1].color = Vector4(0.5f, 0.5f, 0.5f, 1.0f);
-    // lights[1].facing = Normalize(Vector3(10.0f, -2.0f, 0.0f));
-
     LightSource * lights = (LightSource *)calloc(2, sizeof(LightSource));
     lights[0].type = Light_Directional;
     lights[0].color = Vector4(1, 1, 1, 1);
@@ -796,8 +780,6 @@ InitScene() {
     lights[1].facing = Normalize(Vector3(1.0f, -1.0f, 0.0f));
 
     Scene scene;
-    // scene.objects = spheres;
-    // scene.object_count = 4;
     scene.lights = lights;
     scene.light_count = 1;
 
@@ -806,11 +788,6 @@ InitScene() {
 
 int main(int argc, char ** argv) {
     InitParams(argc, argv);
-    // gParams.camera_position = hierarchy.spheres[0].s.center;
-    // gParams.camera_position.z -= 200.0f;
-    // gParams.camera_position.x += 500.0f;
-    // gParams.camera_position.y *= 0.25f;
-    // printf("camera p = (%f %f %f)\n", gParams.camera_position.x, gParams.camera_position.y, gParams.camera_position.z);
 
     Framebuffer fb;
     // fb.width = 640;
@@ -823,7 +800,7 @@ int main(int argc, char ** argv) {
     Camera cam = MakeCamera(gParams.camera_fov, &fb);
     Mesh * mesh;
     BoundingHierarchy hierarchy;
-    Matrix33 transform;// = Transpose(cam.cam_from_world);
+    Matrix33 transform;
     transform.SetIdentity();
     {
         TIME_BLOCK("Load Mesh");
