@@ -9,7 +9,39 @@ struct BoundingSphereP {
     BoundingSphereP * children[2];
     MeshGroup * mesh_group;
 };
-#if 0
+
+static void
+UpdateSphereWithPoint(Sphere * s, Vector3 p) {
+    Vector3 pc = p - s->center;
+    float sq_dist = Dot(pc, pc);
+    if (sq_dist > (s->radius * s->radius)) {
+        float dist = sqrtf(sq_dist);
+        float new_radius = (s->radius + dist) * 0.5f + 1e-2;
+        float k = (new_radius - s->radius) / dist;
+
+        s->radius = new_radius;
+        s->center += pc * k;
+    }
+}
+
+#if 1
+static void
+FindExtremePointsAlongDirection(Vector3 dir, Vector3 * points, u32 point_count, u32 * idx_min, u32 * idx_max) {
+    float min_proj = FLT_MAX;
+    float max_proj = -FLT_MAX;
+    for (u32 i = 0; i < point_count; ++i) {
+        float proj = Dot(points[i], dir);
+        if (proj < min_proj) {
+            *idx_min = i;
+            min_proj = proj;
+        }
+        if (proj > max_proj) {
+            *idx_max = i;
+            max_proj = proj;
+        }
+    }
+}
+
 static Matrix33
 CovarianceMatrix(Vector3 * points, u32 point_count) {
     float one_over_count = 1.0f / (float)point_count;
@@ -69,24 +101,150 @@ SymSchur2(Matrix33 m, u32 p, u32 q, float * out_c, float * out_s) {
     }
 }
 
-#endif
-
 static void
-UpdateSphereWithPoint(Sphere * s, Vector3 p) {
-    Vector3 pc = p - s->center;
-    float sq_dist = Dot(pc, pc);
-    if (sq_dist > (s->radius * s->radius)) {
-        float dist = sqrtf(sq_dist);
-        float new_radius = (s->radius + dist) * 0.5f + 1e-2;
-        float k = (new_radius - s->radius) / dist;
+Jacobi(Matrix33 * a, Matrix33 * v) {
+    float prevoff;
+    float c, s;
+    Matrix33 J, b, t;
 
-        s->radius = new_radius;
-        s->center += pc * k;
+    v->SetIdentity();
+
+    const u32 max_iterations = 50;
+    for (u32 n = 0; n < max_iterations; ++n) {
+        u32 p = 0;
+        u32 q = 1;
+        for (u32 i = 0; i < 3; ++i) {
+            for (u32 j = 0; j < 3; ++j) {
+                if (i != j) {
+                    float ij = (*a)(i, j);
+                    float pq = (*a)(p, q);
+                    if (fabsf(ij) > fabsf(pq)) {
+                        p = i;
+                        q = j;
+                    }
+                }
+            }
+        }
+
+        SymSchur2(*a, p, q, &c, &s);
+        J.SetIdentity();
+        J(p, p) = c;
+        J(p, q) = s;
+        J(q, p) = -s;
+        J(q, q) = c;
+
+        *v = *v * J;
+
+        *a = Transpose(J) * (*a) * J;
+
+        float off = 0.0f;
+        for (u32 i = 0; i < 3; ++i) {
+            for (u32 j = 0; j < 3; ++j) {
+                if (i != j) {
+                    off += (*a)(i, j) * (*a)(i, j);
+                }
+            }
+        }
+
+        if (n > 2 && off >= prevoff) {
+            return;
+        }
+        prevoff = off;
     }
 }
 
 static Sphere
+EigenSphere(Vector3 * points, u32 point_count) {
+    Matrix33 m = CovarianceMatrix(points, point_count);
+    Matrix33 v;
+    Jacobi(&m, &v);
+
+    Vector3 e;
+    u32 max_c = 0;
+    float max_e = fabsf(m(0, 0));
+    if (fabsf(m(1, 1)) > max_e) {
+        max_c = 1;
+        max_e = fabsf(m(1, 1));
+    }
+    if (fabsf(m(2, 2)) > max_e) {
+        max_c = 2;
+        max_e = fabsf(m(2, 2));
+    }
+
+    e.x = v(0, max_c);
+    e.y = v(1, max_c);
+    e.z = v(2, max_c);
+
+    u32 idx_min;
+    u32 idx_max;
+    FindExtremePointsAlongDirection(e, points, point_count, &idx_min, &idx_max);
+    Vector3 min_pt = points[idx_min];
+    Vector3 max_pt = points[idx_max];
+
+    Sphere result;
+    result.center = (min_pt + max_pt) * 0.5f;
+    result.radius = Length(min_pt - max_pt) * 0.5f;
+
+    for (u32 i = 0; i < point_count; ++i) {
+        UpdateSphereWithPoint(&result, points[i]);
+
+        assert(Length(points[i] - result.center) <= result.radius);
+    }
+
+    return result;
+}
+
+static Sphere
+Ritter_Iterative(Sphere s, Vector3 * points, u32 point_count) {
+    const u32 num_iters = 16;
+
+    RandomState rng;
+    Random_Seed(&rng, 0x201701260526ull);
+    Sphere s2 = s;
+    for (u32 k = 0; k < num_iters; ++k) {
+        s2.radius *= 0.9f;
+
+        for (u32 i = 0; i < point_count; ++i) {
+            // Shuffle points (results in better spheres for same iter count.)
+            u32 remaining = point_count - i - 1;
+            if (remaining) {
+                u32 j = (u32)Random_Next(&rng) % remaining;
+                j += i + 1;
+                assert(j < point_count);
+                Vector3 tmp = points[i];
+                points[i] = points[j];
+                points[j] = tmp;
+            }
+
+            UpdateSphereWithPoint(&s2, points[i]);
+        }
+
+        if (s2.radius < s.radius) s = s2;
+    }
+    return s;
+}
+
+static Sphere
+BoundingSphere_FromMesh_Eigen(Mesh * mesh, MeshGroup * group) {
+    u32 point_count = group->idx_positions.size();
+    Vector3 * points = (Vector3 *)calloc(point_count, sizeof(Vector3));
+    for (u32 i = 0; i < point_count; ++i) {
+        u32 idx = group->idx_positions[i];
+        points[i] = mesh->positions[idx];
+    }
+
+    Sphere result = EigenSphere(points, point_count);
+    result = Ritter_Iterative(result, points, point_count);
+
+    free(points);
+    return result;
+}
+
+#endif
+
+static Sphere
 BoundingSphere_FromMesh(Mesh * mesh, MeshGroup * group) {
+    return BoundingSphere_FromMesh_Eigen(mesh, group);
     // To estimate the bounding sphere, we start by finding the min/max points
     // along all axes, and then use the most separated of those to form a 
     // sphere.  We then apply Ritter's algorithm, looping over all points and
@@ -98,29 +256,31 @@ BoundingSphere_FromMesh(Mesh * mesh, MeshGroup * group) {
     // - Eigen-Ritter -- more accurate, more complex.
     // - Welzl -- optimal, difficult to make robust.
     u32 point_count = group->idx_positions.size();
-
-    u32 first_idx = group->idx_positions[0];
-
-    u32 min_x_idx = first_idx;
-    u32 min_y_idx = first_idx;
-    u32 min_z_idx = first_idx;
-    u32 max_x_idx = first_idx;
-    u32 max_y_idx = first_idx;
-    u32 max_z_idx = first_idx;
-    for (u32 i = 1; i < point_count; ++i) {
+    Vector3 * points = (Vector3 *)calloc(point_count, sizeof(Vector3));
+    for (u32 i = 0; i < point_count; ++i) {
         u32 idx = group->idx_positions[i];
-        if (mesh->positions[idx].x < mesh->positions[min_x_idx].x) min_x_idx = idx;
-        if (mesh->positions[idx].y < mesh->positions[min_y_idx].y) min_y_idx = idx;
-        if (mesh->positions[idx].z < mesh->positions[min_z_idx].z) min_z_idx = idx;
-
-        if (mesh->positions[idx].x > mesh->positions[max_x_idx].x) max_x_idx = idx;
-        if (mesh->positions[idx].y > mesh->positions[max_y_idx].y) max_y_idx = idx;
-        if (mesh->positions[idx].z > mesh->positions[max_z_idx].z) max_z_idx = idx;
+        points[i] = mesh->positions[idx];
     }
 
-    Vector3 vx = mesh->positions[min_x_idx] - mesh->positions[max_x_idx];
-    Vector3 vy = mesh->positions[min_y_idx] - mesh->positions[max_y_idx];
-    Vector3 vz = mesh->positions[min_z_idx] - mesh->positions[max_z_idx];
+    u32 min_x_idx = 0;
+    u32 min_y_idx = 0;
+    u32 min_z_idx = 0;
+    u32 max_x_idx = 0;
+    u32 max_y_idx = 0;
+    u32 max_z_idx = 0;
+    for (u32 i = 1; i < point_count; ++i) {
+        if (points[i].x < points[min_x_idx].x) min_x_idx = i;
+        if (points[i].y < points[min_y_idx].y) min_y_idx = i;
+        if (points[i].z < points[min_z_idx].z) min_z_idx = i;
+
+        if (points[i].x > points[max_x_idx].x) max_x_idx = i;
+        if (points[i].y > points[max_y_idx].y) max_y_idx = i;
+        if (points[i].z > points[max_z_idx].z) max_z_idx = i;
+    }
+
+    Vector3 vx = points[min_x_idx] - points[max_x_idx];
+    Vector3 vy = points[min_y_idx] - points[max_y_idx];
+    Vector3 vz = points[min_z_idx] - points[max_z_idx];
 
     float sq_dist_x = Dot(vx, vx);
     float sq_dist_y = Dot(vy, vy);
@@ -139,17 +299,18 @@ BoundingSphere_FromMesh(Mesh * mesh, MeshGroup * group) {
     }
 
     Sphere result;
-    result.center = (mesh->positions[min_idx] + mesh->positions[max_idx]) * 0.5f;
-    result.radius = Length(mesh->positions[max_idx] - mesh->positions[min_idx]) * 0.5f;
-    
-    for (u32 i = 0; i < point_count; ++i) {
-        u32 idx = group->idx_positions[i];
-        Vector3 v = mesh->positions[idx];
-        UpdateSphereWithPoint(&result, v);
+    result.center = (points[min_idx] + points[max_idx]) * 0.5f;
+    result.radius = Length(points[max_idx] - points[min_idx]) * 0.5f;
 
-        assert(Length(v - result.center) <= result.radius);
+    for (u32 i = 0; i < point_count; ++i) {
+        UpdateSphereWithPoint(&result, points[i]);
+
+        assert(Length(points[i] - result.center) <= result.radius);
     }
 
+    result = Ritter_Iterative(result, points, point_count);
+
+    free(points);
     return result;
 }
 
@@ -325,7 +486,7 @@ BuildHierarchy(BoundingHierarchy * h, Mesh * mesh) {
 
             BoundingSphereP * parent = (BoundingSphereP *)calloc(1, sizeof(BoundingSphereP));
             assert(parent);
-            parent->s = merged; //BoundingSphere_FromChildren(a->s, b->s);
+            parent->s = merged;
             parent->children[0] = a;
             parent->children[1] = b;
             parent->mesh_group = NULL;
