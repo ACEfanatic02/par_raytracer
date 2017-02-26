@@ -69,18 +69,6 @@ SymSchur2(Matrix33 m, u32 p, u32 q, float * out_c, float * out_s) {
     }
 }
 
-static BoundingSphere
-BoundingSphere_FromTriangle(Vector3 p0, Vector3 p1, Vector3 p2) {
-    BoundingSphere result;
-    result.center = (p0 + p1 + p2) / 3.0f;
-    float d0 = Dot(result.center, p0);
-    float d1 = Dot(result.center, p1);
-    float d2 = Dot(result.center, p2);
-
-    float dmax = max(max(d0, d1), d2);
-    result.radius = sqrtf(dmax);
-    return result;
-}
 #endif
 
 static void
@@ -152,8 +140,8 @@ BoundingSphere_FromMesh(Mesh * mesh, MeshGroup * group) {
 
     Sphere result;
     result.center = (mesh->positions[min_idx] + mesh->positions[max_idx]) * 0.5f;
-    result.radius = Length(mesh->positions[max_idx] - result.center) * 0.95f;
-
+    result.radius = Length(mesh->positions[max_idx] - mesh->positions[min_idx]) * 0.5f;
+    
     for (u32 i = 0; i < point_count; ++i) {
         u32 idx = group->idx_positions[i];
         Vector3 v = mesh->positions[idx];
@@ -161,7 +149,6 @@ BoundingSphere_FromMesh(Mesh * mesh, MeshGroup * group) {
 
         assert(Length(v - result.center) <= result.radius);
     }
-    // printf("[GROUP = %s] (%f %f %f %f)\n", group->name, result.center.x, result.center.y, result.center.z, result.radius);
 
     return result;
 }
@@ -195,48 +182,36 @@ BoundingSphere_FromChildren(Sphere s0, Sphere s1) {
     // the child spheres, so we multiply out a bit to get there.
     //
     // There is probably a better way to do this. 
-    result.radius *= 1.005f;
-
-    if (false) {
-        Vector3 v0 = result.center - s0.center;
-        float lv0 = Length(v0);
-        ASSERT(lv0 + s0.radius <= result.radius);
-        Vector3 v1 = result.center - s1.center;
-        float lv1 = Length(v1);
-        ASSERT(lv1 + s1.radius <= result.radius);
-    }
+    result.radius *= 1.0001f;
     return result;
 }
 
-
-//
-// Building sphere heirarchy:
-// 
-// Start by building sphere for each mesh group.
-// Remove two closest spheres, create parent, add parent to list.
-// Continue until list contains only one sphere.
-//
-
 static bool
-FindClosestSpheres(std::vector<BoundingSphereP *> spheres, u32 * idx_a, u32 * idx_b) {
-    u32 ssize = spheres.size();
-    if (ssize < 2) {
+FindMergeCandidates(std::vector<BoundingSphereP *> spheres, u32 * idx_a, u32 * idx_b, Sphere * merged) {
+    u32 sphere_count = spheres.size();
+    if (sphere_count < 2) {
         return false;
     }
     else {
-        float min_dist = FLT_MAX;
-        u32 best[2] = { ssize, ssize };
-        for (u32 i = 0; i < ssize; ++i) {
-            for (u32 j = i + 1; j < ssize; ++j) {
-                BoundingSphereP * a = spheres[i];
-                BoundingSphereP * b = spheres[j];
+        float min_heuristic = FLT_MAX;
+        u32 best[2] = { sphere_count, sphere_count };
+        for (u32 i = 0; i < sphere_count; ++i) {
+            for (u32 j = i + 1; j < sphere_count; ++j) {
+                BoundingSphereP * s0 = spheres[i];
+                BoundingSphereP * s1 = spheres[j];
+                Sphere parent = BoundingSphere_FromChildren(s0->s, s1->s);
+                // NOTE(bryan):  We minimize surface area.  SA=4pi*r^2
+                // Because constant multiplication and squaring do not affect ordering, 
+                // we can just use the radius directly as our heuristic.  (In addition 
+                // to less work, this gives us slightly better precision.)
+                float heuristic = parent.radius;
 
-                Vector3 dc = a->s.center - b->s.center;
-                float sq_dist = Dot(dc, dc);
-                if (sq_dist < min_dist) {
+                if (heuristic < min_heuristic) {
                     best[0] = i;
                     best[1] = j;
-                    min_dist = sq_dist;
+
+                    *merged = parent;
+                    min_heuristic = heuristic;
                 }
             }
         }
@@ -334,7 +309,8 @@ BuildHierarchy(BoundingHierarchy * h, Mesh * mesh) {
         // prebake this stuff as well.
         u32 sp_a;
         u32 sp_b;
-        while (FindClosestSpheres(spheres, &sp_a, &sp_b)) {
+        Sphere merged;
+        while (FindMergeCandidates(spheres, &sp_a, &sp_b, &merged)) {
             BoundingSphereP * a = spheres[sp_a];
             BoundingSphereP * b = spheres[sp_b];
             assert(a && b);
@@ -349,7 +325,7 @@ BuildHierarchy(BoundingHierarchy * h, Mesh * mesh) {
 
             BoundingSphereP * parent = (BoundingSphereP *)calloc(1, sizeof(BoundingSphereP));
             assert(parent);
-            parent->s = BoundingSphere_FromChildren(a->s, b->s);
+            parent->s = merged; //BoundingSphere_FromChildren(a->s, b->s);
             parent->children[0] = a;
             parent->children[1] = b;
             parent->mesh_group = NULL;
@@ -374,64 +350,3 @@ BuildHierarchy(BoundingHierarchy * h, Mesh * mesh) {
         CheckInvariants(h, h->spheres[0], 0);
     }
 }
-
-#if 0
-// Casting against spheres:
-// Cast against root, if collides, cast against all children.  May hit multiple children,
-// in which case *all* of them need to be checked.
-
-static std::vector<u32>
-Raycast_BoundingSpheres(Ray ray, BoundingSphere * root) {
-    std::vector<BoundingSphere *> open_spheres;
-    std::vector<u32> possible_tris;
-
-    open_spheres.push_back(root);
-
-    float t;
-    while (open_spheres.size() > 0) {
-        BoundingSphere * s = open_spheres.pop_back();
-        if (IntersectRaySphere(ray, s, &t)) {
-            if (s->is_leaf) {
-                possible_tris.push_back(s->tri_first_index);
-            }
-            else {
-                open_spheres.push_back(s->children[0]);
-                open_spheres.push_back(s->children[1]);
-            }
-        }
-    }
-
-    return possible_tris;
-}
-
-const u32 INVALID_INDEX = 0xffffffff;
-
-static bool
-Raycast_TriangleList(Ray ray, std::vector<u32> possible_tris, u32 * hit_tri, TriangleHitParams * hit_params) {
-    bool hit = false;
-    u32 best_tri = INVALID_INDEX;
-    TriangleHitParams best_params = {};
-    float best_t;
-    for (u32 i = 0; i < possible_tris.size(); ++i) {
-        Vector3 a = GetVertexPos(possible_tris[i] + 0);
-        Vector3 b = GetVertexPos(possible_tris[i] + 1);
-        Vector3 c = GetVertexPos(possible_tris[i] + 2);
-        float t;
-        TriangleHitParams params;
-        // TODO(bryan):  Due to alpha, this is not 100% correct, which poses
-        // a problem for shadow ray casting.  (We may hit the polygon but not
-        // *actually* be occluded if it has alpha < 1.)
-        if (IntersectRayTriangle(ray, a, b, c, &params)) {
-            if (t < best_t) {
-                best_tri = possible_tris[i];
-                best_params = params;
-                best_t = t;
-                hit = true;
-            }
-        }
-    }
-    if (hit_tri) *hit_tri = best_tri;
-    if (hit_params) *hit_params = best_params;
-    return hit;
-}
-#endif
