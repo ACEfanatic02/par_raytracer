@@ -161,7 +161,7 @@ TestRaySphere(Ray ray, Sphere sphere) {
 
     // This is COMPLETELY WRONG, yet it fixes the raycast used
     // for object pruning.  What.
-    if (b < 0.0f) return false;
+    if (b > 0.0f) return false;
 
     float discriminant = b*b - c;
     // Ray misses the sphere.
@@ -176,10 +176,13 @@ IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, RaycastHit * out_
     Vector3 ab = b - a;
     Vector3 ac = c - a;
 
+    Vector3 q = ray.origin + ray.direction;
+    Vector3 qp = ray.origin - q;
+
     // TODO(bryan):  We don't need to recalculate this every time.
     Vector3 normal = Cross(ab, ac);
 
-    float d = Dot(ray.direction, normal);
+    float d = Dot(qp, normal);
     if (d <= 0.0f) {
         return false;
     }
@@ -193,7 +196,7 @@ IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, RaycastHit * out_
 
     // At this point, we know we hit the plane of the triangle, now check if
     // we're actually inside it.
-    Vector3 e = Cross(ray.direction, ap);
+    Vector3 e = Cross(qp, ap);
     float v = Dot(ac, e);
     if (v < 0.0f || v > d) return false;
     float w = -Dot(ab, e);
@@ -503,7 +506,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
             interp_normal += mesh->normals[mg->idx_normals[idx + 0]] * hit.bw.x;
             interp_normal += mesh->normals[mg->idx_normals[idx + 1]] * hit.bw.y;
             interp_normal += mesh->normals[mg->idx_normals[idx + 2]] * hit.bw.z;
-            color = Color_FromNormal(interp_normal);
+            color = Color_FromNormal(hit_normal);
         }
     }
     else {
@@ -536,53 +539,48 @@ struct Camera {
     float inv_width;
     float inv_height;
 
-    Matrix33 world_from_cam;
+    Vector3 camera_position;
+    Vector3 camera_forward;
+    Vector3 camera_right;
+    Vector3 camera_up;
 };
 
 static Camera
 MakeCamera(float fov, Framebuffer * fb) {
-    Camera cam = {
-        tanf(DEG2RAD((fov / 2.0f))),
-        (float)fb->width / (float)fb->height,
-        1.0f / fb->width,
-        1.0f / fb->height,
-        Matrix33_FromToRotation(Vector3(0.0f, 0.0f, 1.0f), gParams.camera_facing),
-    };
+    Camera cam;
+    cam.tan_a2 = tanf(DEG2RAD(fov / 2.0f));
+    cam.aspect = (float)fb->width / (float)fb->height;
+    cam.inv_width = 1.0f / (float)fb->width;
+    cam.inv_height = 1.0f / (float)fb->height;
+    cam.camera_position = gParams.camera_position;
 
-    Vector3 l = gParams.camera_facing;
-    Vector3 up(0, 1, 0);
+    // TODO(bryan):  This will not work if the camera is *facing* near world up.
+    Vector3 up(0.0f, 1.0f, 0.0f);
 
-    Vector3 s = Cross(l, up);
-    Vector3 u = Cross(s, l);
-
-    cam.world_from_cam(0, 0) = s.x;
-    cam.world_from_cam(1, 0) = s.y;
-    cam.world_from_cam(2, 0) = s.z;
-    cam.world_from_cam(0, 1) = u.x;
-    cam.world_from_cam(1, 1) = u.y;
-    cam.world_from_cam(2, 1) = u.z;
-    cam.world_from_cam(0, 2) = -l.x;
-    cam.world_from_cam(1, 2) = -l.y;
-    cam.world_from_cam(2, 2) = -l.z;
+    cam.camera_forward = Normalize(gParams.camera_facing);
+    cam.camera_right   = Normalize(Cross(cam.camera_forward, up));
+    cam.camera_up      = Normalize(Cross(cam.camera_right, cam.camera_forward));
 
     return cam;
 }
 
 inline Ray
 MakeCameraRay(Camera * cam, Vector2 origin) {
-    float rx = (2.0f * (origin.x + 0.5f) * cam->inv_width - 1.0f) * cam->tan_a2 * cam->aspect;
-    float ry = (1.0f - 2.0f * (origin.y + 0.5f) * cam->inv_height) * cam->tan_a2;
-    Vector3 dir = Normalize(Vector3(rx, ry, 1.0f));
+    float normalized_x = 2.0f * (origin.x + 0.5f) * cam->inv_width - 1.0f;
+    float normalized_y = 1.0f - 2.0f * (origin.y + 0.5f) * cam->inv_height;
+
+    Vector3 dir = cam->camera_forward 
+                + cam->camera_right * cam->tan_a2 * cam->aspect * normalized_x
+                + cam->camera_up * cam->tan_a2 * normalized_y;
 
     Ray ray;
-    // TODO(bryan):  This may not be quite correct?
-    ray.origin = gParams.camera_position;
-    ray.direction = Normalize(cam->world_from_cam * dir) * -1.0f;
+    ray.origin = cam->camera_position;
+    ray.direction = Normalize(dir); 
     return ray;
 }
 
 Vector2 SSAA_Offsets[] = {
-#if 1
+#if 0
     // Four Rooks / Rotated Grid sampling pattern.
     Vector2(-0.375f,  0.125f),
     Vector2( 0.125f,  0.375f),
@@ -594,8 +592,7 @@ Vector2 SSAA_Offsets[] = {
 };
 
 static void
-Render(Framebuffer * fb, Scene * scene) {
-    Camera cam = MakeCamera(gParams.camera_fov, fb);
+Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     for (u32 y = 0; y < fb->height; ++y) {
         // TIME_BLOCK("render row");
         for (u32 x = 0; x < fb->width; ++x) {
@@ -605,7 +602,7 @@ Render(Framebuffer * fb, Scene * scene) {
             // Super-sampled anti-aliasing
             for (u32 s = 0; s < array_count(SSAA_Offsets); ++s) {
                 Vector2 pos = Vector2(x, y) + SSAA_Offsets[s];
-                Ray ray = MakeCameraRay(&cam, pos);
+                Ray ray = MakeCameraRay(cam, pos);
                 color += TraceRayColor(ray, scene, gParams.bounce_depth);
             }
             color /= array_count(SSAA_Offsets);
@@ -683,7 +680,7 @@ InitParams(int argc, char ** argv) {
     // gParams.camera_position = Vector3(0.0f, 15.0f, 10.0f);
     // gParams.camera_facing = Normalize(Vector3(0.0f, -0.5f, -1));
     gParams.camera_position = Vector3(20.0f, 100.0f, 0.0f);
-    gParams.camera_facing = Normalize(Vector3(1.0f, 0.0f, 0.0f));
+    gParams.camera_facing = Normalize(Vector3(-1.0f, 0.0f, 0.0f));
     gParams.image_output_filename = strdup("rt_out.png"); // Need this to be on the heap; might be free'd later.
     gParams.use_system_rand = 0;
 
@@ -808,9 +805,25 @@ InitScene() {
 }
 
 int main(int argc, char ** argv) {
+    InitParams(argc, argv);
+    // gParams.camera_position = hierarchy.spheres[0].s.center;
+    // gParams.camera_position.z -= 200.0f;
+    // gParams.camera_position.x += 500.0f;
+    // gParams.camera_position.y *= 0.25f;
+    // printf("camera p = (%f %f %f)\n", gParams.camera_position.x, gParams.camera_position.y, gParams.camera_position.z);
+
+    Framebuffer fb;
+    // fb.width = 640;
+    // fb.height = 480;
+    fb.width = 128;
+    fb.height = 96;
+    fb.bytes = (u8 *)calloc(4, fb.width * fb.height);
+    fb.DEBUG_rays_cast = (u32 *)calloc(sizeof(u32), fb.width*fb.height);
+
+    Camera cam = MakeCamera(gParams.camera_fov, &fb);
     Mesh * mesh;
     BoundingHierarchy hierarchy;
-    Matrix33 transform = Matrix33_FromEuler(0.0f, 0.0f, PI32);
+    Matrix33 transform;// = Transpose(cam.cam_from_world);
     transform.SetIdentity();
     {
         TIME_BLOCK("Load Mesh");
@@ -821,20 +834,6 @@ int main(int argc, char ** argv) {
         TIME_BLOCK("Build Hierarchy");
         BuildHierarchy(&hierarchy, mesh);
     }
-
-    InitParams(argc, argv);
-    gParams.camera_position = hierarchy.spheres[0].s.center;
-    gParams.camera_position.z -= 200.0f;
-    gParams.camera_position.x += 500.0f;
-    gParams.camera_position.y *= 0.25f;
-
-    Framebuffer fb;
-    // fb.width = 640;
-    // fb.height = 480;
-    fb.width = 128;
-    fb.height = 96;
-    fb.bytes = (u8 *)calloc(4, fb.width * fb.height);
-    fb.DEBUG_rays_cast = (u32 *)calloc(sizeof(u32), fb.width*fb.height);
 
     u32 total_tris = 0;
     Scene scene = InitScene();
@@ -857,7 +856,7 @@ int main(int argc, char ** argv) {
     }
     printf("Triangles: %u\n", total_tris);
 
-    Render(&fb, &scene);
+    Render(&cam, &fb, &scene);
 
     stbi_write_png(gParams.image_output_filename, fb.width, fb.height, 4, fb.bytes, 0);
 

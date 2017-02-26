@@ -721,7 +721,6 @@ Matrix33_FromToRotation(Vector3 from, Vector3 to) {
 
     const float epsilon = 1e-7;
     if (st < epsilon) {
-        printf("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n");
         Matrix33 result;
         result.SetIdentity();
         return result;
@@ -764,6 +763,235 @@ Invert(Matrix33 m) {
     );
 
     return adj * (1.0f / det);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+struct Matrix44 {
+    float e[16];
+    
+    Matrix44() {
+        Set(0.0f, 0.0f, 0.0f, 0.0f, 
+            0.0f, 0.0f, 0.0f, 0.0f, 
+            0.0f, 0.0f, 0.0f, 0.0f, 
+            0.0f, 0.0f, 0.0f, 0.0f);
+    }
+
+    Matrix44(Matrix44& m) {
+        Set(m(0, 0), m(0, 1), m(0, 2), m(0,3), 
+            m(1, 0), m(1, 1), m(1, 2), m(1,3), 
+            m(2, 0), m(2, 1), m(2, 2), m(2,3),
+            m(3, 0), m(3, 1), m(3, 2), m(3,3));
+    }
+
+    Matrix44(float m00, float m01, float m02, float m03,
+             float m10, float m11, float m12, float m13,
+             float m20, float m21, float m22, float m23, 
+             float m30, float m31, float m32, float m33)
+    {
+        Set(m00, m01, m02, m03, 
+            m10, m11, m12, m13, 
+            m20, m21, m22, m23,
+            m30, m31, m32, m33);
+    }
+
+    inline float& 
+    operator()(size_t i, size_t j) {
+        size_t idx = i*4+j;
+        Assert(idx < 16, "Access out of bounds.");
+        return e[idx];        
+    }
+
+    inline float 
+    operator()(size_t i, size_t j) const {
+        size_t idx = i*4+j;
+        Assert(idx < 16, "Access out of bounds.");
+        return e[idx];        
+    }
+
+    inline void 
+    Set(size_t i, size_t j, float val) {
+        (*this)(i, j) = val;
+    }
+
+    inline void 
+    Set(float m00, float m01, float m02, float m03,
+        float m10, float m11, float m12, float m13,
+        float m20, float m21, float m22, float m23, 
+        float m30, float m31, float m32, float m33)
+    {
+        e[ 0] = m00; e[ 1] = m01; e[ 2] = m02; e[ 3] = m03;
+        e[ 4] = m10; e[ 5] = m11; e[ 6] = m12; e[ 7] = m13;
+        e[ 8] = m20; e[ 9] = m21; e[10] = m22; e[11] = m23; 
+        e[12] = m30; e[13] = m31; e[14] = m32; e[15] = m33;
+    }
+
+    inline void
+    SetIdentity() {
+        Set(1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f);
+    }
+};
+
+inline Matrix44
+operator+(Matrix44 a, Matrix44 b) {
+    return Matrix44(
+            a(0, 0) + b(0, 0), a(0, 1) + b(0, 1), a(0, 2) + b(0, 2), a(0, 3) + b(0, 3),
+            a(1, 0) + b(1, 0), a(1, 1) + b(1, 1), a(1, 2) + b(1, 2), a(1, 3) + b(1, 3),
+            a(2, 0) + b(2, 0), a(2, 1) + b(2, 1), a(2, 2) + b(2, 2), a(2, 3) + b(2, 3),
+            a(3, 0) + b(3, 0), a(3, 1) + b(3, 1), a(3, 2) + b(3, 2), a(3, 3) + b(3, 3)
+        );
+}
+
+inline Matrix44
+operator-(Matrix44 a, Matrix44 b) {
+    return Matrix44(
+            a(0, 0) - b(0, 0), a(0, 1) - b(0, 1), a(0, 2) - b(0, 2), a(0, 3) - b(0, 3),
+            a(1, 0) - b(1, 0), a(1, 1) - b(1, 1), a(1, 2) - b(1, 2), a(1, 3) - b(1, 3),
+            a(2, 0) - b(2, 0), a(2, 1) - b(2, 1), a(2, 2) - b(2, 2), a(2, 3) - b(2, 3),
+            a(3, 0) - b(3, 0), a(3, 1) - b(3, 1), a(3, 2) - b(3, 2), a(3, 3) - b(3, 3)
+        );
+}
+
+inline Matrix44
+operator*(Matrix44 a, float b) {
+    return Matrix44(
+            a(0, 0) * b, a(0, 1) * b, a(0, 2) * b, a(0, 3) * b,
+            a(1, 0) * b, a(1, 1) * b, a(1, 2) * b, a(1, 3) * b,
+            a(2, 0) * b, a(2, 1) * b, a(2, 2) * b, a(2, 3) * b,
+            a(3, 0) * b, a(3, 1) * b, a(3, 2) * b, a(3, 3) * b
+        );    
+}
+
+// TODO(bryan):  Even if we don't SIMD the rest of this stuff, may be worth
+// switching over for these multiplies?
+inline Matrix44 
+operator*(Matrix44 a, Matrix44 b) {
+    float m00 = a(0, 0) * b(0, 0)
+              + a(0, 1) * b(1, 0)
+              + a(0, 2) * b(2, 0)
+              + a(0, 3) * b(3, 0);
+    float m01 = a(0, 0) * b(0, 1)
+              + a(0, 1) * b(1, 1)
+              + a(0, 2) * b(2, 1)
+              + a(0, 3) * b(3, 1);
+    float m02 = a(0, 0) * b(0, 2)
+              + a(0, 1) * b(1, 2)
+              + a(0, 2) * b(2, 2)
+              + a(0, 3) * b(3, 2);
+    float m03 = a(0, 0) * b(0, 3)
+              + a(0, 1) * b(1, 3)
+              + a(0, 2) * b(2, 3)
+              + a(0, 3) * b(3, 3);
+
+    float m10 = a(1, 0) * b(0, 0)
+              + a(1, 1) * b(1, 0)
+              + a(1, 2) * b(2, 0)
+              + a(1, 3) * b(3, 0);
+    float m11 = a(1, 0) * b(0, 1)
+              + a(1, 1) * b(1, 1)
+              + a(1, 2) * b(2, 1)
+              + a(1, 3) * b(3, 1);
+    float m12 = a(1, 0) * b(0, 2)
+              + a(1, 1) * b(1, 2)
+              + a(1, 2) * b(2, 2)
+              + a(1, 3) * b(3, 2);
+    float m13 = a(1, 0) * b(0, 3)
+              + a(1, 1) * b(1, 3)
+              + a(1, 2) * b(2, 3)
+              + a(1, 3) * b(3, 3);
+
+    float m20 = a(2, 0) * b(0, 0)
+              + a(2, 1) * b(1, 0)
+              + a(2, 2) * b(2, 0)
+              + a(2, 3) * b(3, 0);
+    float m21 = a(2, 0) * b(0, 1)
+              + a(2, 1) * b(1, 1)
+              + a(2, 2) * b(2, 1)
+              + a(2, 3) * b(3, 1);
+    float m22 = a(2, 0) * b(0, 2)
+              + a(2, 1) * b(1, 2)
+              + a(2, 2) * b(2, 2)
+              + a(2, 3) * b(3, 2);
+    float m23 = a(2, 0) * b(0, 3)
+              + a(2, 1) * b(1, 3)
+              + a(2, 2) * b(2, 3)
+              + a(2, 3) * b(3, 3);
+
+    float m30 = a(3, 0) * b(0, 0)
+              + a(3, 1) * b(1, 0)
+              + a(3, 2) * b(2, 0)
+              + a(3, 3) * b(3, 0);
+    float m31 = a(3, 0) * b(0, 1)
+              + a(3, 1) * b(1, 1)
+              + a(3, 2) * b(2, 1)
+              + a(3, 3) * b(3, 1);
+    float m32 = a(3, 0) * b(0, 2)
+              + a(3, 1) * b(1, 2)
+              + a(3, 2) * b(2, 2)
+              + a(3, 3) * b(3, 2);
+    float m33 = a(3, 0) * b(0, 3)
+              + a(3, 1) * b(1, 3)
+              + a(3, 2) * b(2, 3)
+              + a(3, 3) * b(3, 3);
+
+    return Matrix44(
+            m00, m01, m02, m03, 
+            m10, m11, m12, m13, 
+            m20, m21, m22, m23, 
+            m30, m31, m32, m33 
+        );
+}
+
+inline Vector4
+operator*(Matrix44 a, Vector4 b) {
+    float x = a(0, 0) * b.x
+            + a(0, 1) * b.y
+            + a(0, 2) * b.z
+            + a(0, 3) * b.w;
+
+    float y = a(1, 0) * b.x
+            + a(1, 1) * b.y
+            + a(1, 2) * b.z
+            + a(1, 3) * b.w;
+
+    float z = a(2, 0) * b.x
+            + a(2, 1) * b.y
+            + a(2, 2) * b.z
+            + a(2, 3) * b.w;
+
+    float w = a(3, 0) * b.x
+            + a(3, 1) * b.y
+            + a(3, 2) * b.z
+            + a(3, 3) * b.w;
+
+    return Vector4(x, y, z, w);
+}
+
+inline Matrix44
+Transpose(Matrix44 m) {
+    return Matrix44(
+            m(0, 0), m(1, 0), m(2, 0), m(3, 0),
+            m(0, 1), m(1, 1), m(2, 1), m(3, 1),
+            m(0, 2), m(1, 2), m(2, 2), m(3, 2),
+            m(0, 3), m(1, 3), m(2, 3), m(3, 3)
+        );
+}
+
+inline Vector3
+Matrix44_TransformVector(Matrix44 a, Vector3 b) {
+    Vector4 bb = Vector4(b.x, b.y, b.z, 0.0f);
+    bb = a * bb;
+    return Vector3(bb.x, bb.y, bb.z);
+}
+
+inline Vector3
+Matrix44_TransformPoint(Matrix44 a, Vector3 b) {
+    Vector4 bb = Vector4(b.x, b.y, b.z, 1.0f);
+    bb = a * bb;
+    return Vector3(bb.x, bb.y, bb.z);    
 }
 
 ///////////////////////////////////////////////////////////////////////////////
