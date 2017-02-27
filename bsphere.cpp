@@ -2,6 +2,7 @@
 #include "mathlib.h"
 #include "mesh.h"
 #include "geometry.h"
+#include "random.h"
 #include "timing.h"
 
 struct BoundingSphereP {
@@ -24,7 +25,6 @@ UpdateSphereWithPoint(Sphere * s, Vector3 p) {
     }
 }
 
-#if 1
 static void
 FindExtremePointsAlongDirection(Vector3 dir, Vector3 * points, u32 point_count, u32 * idx_min, u32 * idx_max) {
     float min_proj = FLT_MAX;
@@ -221,11 +221,16 @@ Ritter_Iterative(Sphere s, Vector3 * points, u32 point_count) {
 
         if (s2.radius < s.radius) s = s2;
     }
+
+    // One final pass to make absolutely sure everything's inside.
+    for (u32 i = 0; i < point_count; ++i) {
+        UpdateSphereWithPoint(&s, points[i]);
+    }
     return s;
 }
 
 static Sphere
-BoundingSphere_FromMesh_Eigen(Mesh * mesh, MeshGroup * group) {
+BoundingSphere_FromMesh(Mesh * mesh, MeshGroup * group) {
     u32 point_count = group->idx_positions.size();
     Vector3 * points = (Vector3 *)calloc(point_count, sizeof(Vector3));
     for (u32 i = 0; i < point_count; ++i) {
@@ -234,80 +239,6 @@ BoundingSphere_FromMesh_Eigen(Mesh * mesh, MeshGroup * group) {
     }
 
     Sphere result = EigenSphere(points, point_count);
-    result = Ritter_Iterative(result, points, point_count);
-
-    free(points);
-    return result;
-}
-
-#endif
-
-static Sphere
-BoundingSphere_FromMesh(Mesh * mesh, MeshGroup * group) {
-    return BoundingSphere_FromMesh_Eigen(mesh, group);
-    // To estimate the bounding sphere, we start by finding the min/max points
-    // along all axes, and then use the most separated of those to form a 
-    // sphere.  We then apply Ritter's algorithm, looping over all points and
-    // expanding the sphere to fit any that are not included.
-    //
-    // This is not optimal, but should be Good Enough?
-    //
-    // Alternatives:
-    // - Eigen-Ritter -- more accurate, more complex.
-    // - Welzl -- optimal, difficult to make robust.
-    u32 point_count = group->idx_positions.size();
-    Vector3 * points = (Vector3 *)calloc(point_count, sizeof(Vector3));
-    for (u32 i = 0; i < point_count; ++i) {
-        u32 idx = group->idx_positions[i];
-        points[i] = mesh->positions[idx];
-    }
-
-    u32 min_x_idx = 0;
-    u32 min_y_idx = 0;
-    u32 min_z_idx = 0;
-    u32 max_x_idx = 0;
-    u32 max_y_idx = 0;
-    u32 max_z_idx = 0;
-    for (u32 i = 1; i < point_count; ++i) {
-        if (points[i].x < points[min_x_idx].x) min_x_idx = i;
-        if (points[i].y < points[min_y_idx].y) min_y_idx = i;
-        if (points[i].z < points[min_z_idx].z) min_z_idx = i;
-
-        if (points[i].x > points[max_x_idx].x) max_x_idx = i;
-        if (points[i].y > points[max_y_idx].y) max_y_idx = i;
-        if (points[i].z > points[max_z_idx].z) max_z_idx = i;
-    }
-
-    Vector3 vx = points[min_x_idx] - points[max_x_idx];
-    Vector3 vy = points[min_y_idx] - points[max_y_idx];
-    Vector3 vz = points[min_z_idx] - points[max_z_idx];
-
-    float sq_dist_x = Dot(vx, vx);
-    float sq_dist_y = Dot(vy, vy);
-    float sq_dist_z = Dot(vz, vz);
-
-    // Pick the two most separated points.
-    u32 min_idx = min_x_idx;
-    u32 max_idx = max_x_idx;
-    if (sq_dist_y > sq_dist_x && sq_dist_y > sq_dist_z) {
-        max_idx = max_y_idx;
-        min_idx = min_y_idx; 
-    }
-    if (sq_dist_z > sq_dist_x && sq_dist_z > sq_dist_y) {
-        max_idx = max_z_idx;
-        min_idx = min_z_idx;
-    }
-
-    Sphere result;
-    result.center = (points[min_idx] + points[max_idx]) * 0.5f;
-    result.radius = Length(points[max_idx] - points[min_idx]) * 0.5f;
-
-    for (u32 i = 0; i < point_count; ++i) {
-        UpdateSphereWithPoint(&result, points[i]);
-
-        assert(Length(points[i] - result.center) <= result.radius);
-    }
-
     result = Ritter_Iterative(result, points, point_count);
 
     free(points);
@@ -440,7 +371,7 @@ CheckInvariants(BoundingHierarchy * h, BoundingSphere s, u32 idx) {
         for (u32 i = 0; i < mg->idx_positions.size(); ++i) {
             Vector3 p = mesh->positions[mg->idx_positions[i]];
             Vector3 d = p - s.s.center;
-            assert(Dot(d, d) <= s.s.radius * s.s.radius);
+            assert(Length(d) <= s.s.radius);
         }
     }
 }

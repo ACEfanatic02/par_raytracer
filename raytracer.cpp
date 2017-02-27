@@ -262,7 +262,9 @@ TraceRay(Ray ray, Scene * scene, RaycastHit * out_hit) {
                 continue;
             }
             if (s.c0 && s.c1) {
-#if 1
+#if 0
+                // NOTE(bryan): Experimentally, this heuristic actually leads 
+                // to more work?  What.
                 BoundingSphere s0 = scene->hierarchy->spheres[s.c0];
                 BoundingSphere s1 = scene->hierarchy->spheres[s.c1];
                 Vector3 v0 = ray.origin - s0.s.center;
@@ -583,6 +585,53 @@ MakeCameraRay(Camera * cam, Vector2 origin) {
     return ray;
 }
 
+inline float
+Color_Distance(Vector4 a, Vector4 b) {
+    // Manhattan distance to properly identify differences in hue as well.
+    return fabsf(a.x - b.x)
+         + fabsf(a.y - b.y)
+         + fabsf(a.z - b.z)
+         + fabsf(a.w - b.w);
+}
+
+static float
+CalculateLocalVariance(Framebuffer *fb, u32 x, u32 y) {
+    u32 min_x = min(x - 2, 0);
+    u32 max_x = min(x + 2, fb->width);
+    u32 min_y = min(y - 2, 0);
+    u32 max_y = min(y + 2, fb->height);
+
+    float sum = 0.0f;
+    u32 count = (max_x - min_x) * (max_y - min_y) - 1;
+    Vector4 mean;
+    for (u32 yy = min_y; yy <= max_y; ++yy) {
+        for (u32 xx = min_x; xx <= max_x; ++xx) {
+            mean += Color_Unpack(fb->bytes + (yy*fb->width + xx)*4);
+        }
+    }
+
+    for (u32 yy = min_y; yy <= max_y; ++yy) {
+        for (u32 xx = min_x; xx <= max_x; ++xx) {
+            u32 idx = yy * fb->width + xx;
+
+            Vector4 c0 = Color_Unpack(fb->bytes + idx * 4);
+            float d = Color_Distance(c0, mean);
+            sum += d*d;
+        }
+    }
+    return sum / (float)count;
+}
+
+static void
+MakeVarianceMap(Framebuffer *fb, float * out_var) {
+    for (u32 y = 0; y < fb->height; ++y) {
+        for (u32 x = 0; x < fb->width; ++x) {
+            u32 idx = y * fb->width + x;
+            out_var[idx] = CalculateLocalVariance(fb, x, y); 
+        }
+    }
+}
+
 Vector2 SSAA_Offsets[] = {
 #if 0
     // Four Rooks / Rotated Grid sampling pattern.
@@ -600,7 +649,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     gSpheresChecked = 0;
     gMeshesChecked = 0;
     for (u32 y = 0; y < fb->height; ++y) {
-        // TIME_BLOCK("Render Row");
+        TIME_BLOCK("Render Row");
         for (u32 x = 0; x < fb->width; ++x) {
             // TIME_BLOCK("render pixel");
             gRayCount = 0;
@@ -615,6 +664,52 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
             WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
             fb->DEBUG_rays_cast[x + y * fb->width] = gRayCount;
         }
+    }
+
+    stbi_write_png("rt_out_beforevar.png", fb->width, fb->height, 4, fb->bytes, 0);
+
+    printf("Start variance reduction\n");
+    u32 max_variance_reduction_passes = 8;
+
+    for (u32 pass = 0; pass < max_variance_reduction_passes; ++pass) {
+        const float variance_threshold = 3.0f;
+        float * var_map = (float *)calloc(fb->width * fb->height, sizeof(float));
+        {
+            TIME_BLOCK("Variance Map");
+            MakeVarianceMap(fb, var_map);
+        }
+        for (u32 y = 0; y < fb->height; ++y) {
+            TIME_BLOCK("Render Row");
+            u32 skip_count = 0;
+            for (u32 x = 0; x < fb->width; ++x) {
+                u32 idx = y * fb->width + x;
+                if (var_map[idx] < variance_threshold) {
+                    skip_count++;
+                    continue;
+                }
+
+                gRayCount = 0;
+                Vector4 color = Color_Unpack(fb->bytes + idx * 4);
+                color.x = Color_SRGBToLinear(color.x);
+                color.y = Color_SRGBToLinear(color.y);
+                color.z = Color_SRGBToLinear(color.z);
+                color.w = Color_SRGBToLinear(color.w);
+
+                float off_x = GetRandFloat11() * 0.5f;
+                float off_y = GetRandFloat11() * 0.5f;
+                Vector2 pos = Vector2(x + off_x, y + off_y);
+                Ray ray = MakeCameraRay(cam, pos);
+                color += TraceRayColor(ray, scene, gParams.bounce_depth);
+                color *= 0.5f;
+                
+                WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
+                fb->DEBUG_rays_cast[x + y * fb->width] += gRayCount;
+            }
+            printf("Skipped %d pixels\n", skip_count);
+        }
+        char buffer[256];
+        _snprintf(buffer, sizeof(buffer), "rt_out_pass%02d.png", pass + 1);
+        stbi_write_png(buffer, fb->width, fb->height, 4, fb->bytes, 0);
     }
 
     u32 pixel_count = fb->height*fb->width;
@@ -684,8 +779,10 @@ static void
 InitParams(int argc, char ** argv) {
     // Defaults
     gParams.ray_bias = 1e-3;
-    gParams.reflection_samples = 8;
-    gParams.spec_samples = 8;
+    // gParams.reflection_samples = 8;
+    // gParams.spec_samples = 8;
+    gParams.reflection_samples = 1;
+    gParams.spec_samples = 1;
     gParams.bounce_depth = 2;
     gParams.background_color = Vector4(0.0f, 0.3f, 0.5f, 1.0f);
     gParams.camera_fov = 60.0f;
@@ -770,7 +867,7 @@ MakeMaterial(Vector4 color) {
 
 static Scene
 InitScene() {
-    LightSource * lights = (LightSource *)calloc(2, sizeof(LightSource));
+    LightSource * lights = (LightSource *)calloc(3, sizeof(LightSource));
     lights[0].type = Light_Directional;
     lights[0].color = Vector4(1, 1, 1, 1);
     lights[0].facing = Vector3(0, -1, 0);
@@ -779,9 +876,13 @@ InitScene() {
     lights[1].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
     lights[1].facing = Normalize(Vector3(1.0f, -1.0f, 0.0f));
 
+    lights[2].type = Light_Point;
+    lights[2].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+    lights[2].position = Vector3(500.0f, 250.0f, 0.0f);
+
     Scene scene;
     scene.lights = lights;
-    scene.light_count = 1;
+    scene.light_count = 3;
 
     return scene;    
 }
@@ -792,8 +893,8 @@ int main(int argc, char ** argv) {
     Framebuffer fb;
     // fb.width = 640;
     // fb.height = 480;
-    fb.width = 128;
-    fb.height = 96;
+    fb.width = 128*2;
+    fb.height = 96*2;
     fb.bytes = (u8 *)calloc(4, fb.width * fb.height);
     fb.DEBUG_rays_cast = (u32 *)calloc(sizeof(u32), fb.width*fb.height);
 
@@ -804,9 +905,12 @@ int main(int argc, char ** argv) {
     transform.SetIdentity();
     {
         TIME_BLOCK("Load Mesh");
-        // mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/san-miguel/sanMiguel/sanMiguel.obj");
+        // mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/san-miguel/sanMiguel/sanMiguel.obj", transform);
         mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/crytek-sponza/sponza.obj", transform);
     }
+    printf("Vertices (p): %u\n", mesh->positions.size());
+    printf("Vertices (t): %u\n", mesh->texcoords.size());
+    printf("Vertices (n): %u\n", mesh->normals.size());
     {
         TIME_BLOCK("Build Hierarchy");
         BuildHierarchy(&hierarchy, mesh);
