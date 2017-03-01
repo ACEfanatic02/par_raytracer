@@ -28,7 +28,6 @@ Fract(float f) {
 struct Vector2 {
     float x;
     float y;
-    float z;
 
     Vector2() {
         Set(0.0f, 0.0f);

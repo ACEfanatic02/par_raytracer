@@ -15,6 +15,7 @@
 
 #include "obj_parser.cpp"
 #include "bsphere.cpp"
+#include "texture.cpp"
 
 static u32 gRayCount;
 static u64 gSpheresChecked;
@@ -32,35 +33,6 @@ struct {
     char * image_output_filename;
     u32 use_system_rand;
 } gParams;
-
-// newmtl leaf
-//     Ns 10.0000
-//     Ni 1.5000
-//     d 1.0000
-//     Tr 0.0000
-//     Tf 1.0000 1.0000 1.0000 
-//     illum 2
-//     Ka 0.5880 0.5880 0.5880
-//     Kd 0.5880 0.5880 0.5880
-//     Ks 0.0000 0.0000 0.0000
-//     Ke 0.0000 0.0000 0.0000
-//     map_Ka textures\sponza_thorn_diff.tga
-//     map_Kd textures\sponza_thorn_diff.tga
-//     map_d textures\sponza_thorn_mask.tga
-//     map_bump textures\sponza_thorn_bump.png
-//     bump textures\sponza_thorn_bump.png
-struct Material {
-    float specular_intensity;
-    float index_of_refraction;
-    float alpha;
-
-    Vector4 ambient_color;
-    Vector4 diffuse_color;
-    Vector4 specular_color;
-    Vector4 emissive_color;
-
-    // TODO(bryan): Texture maps
-};
 
 enum LightSourceType {
     Light_Directional,
@@ -461,7 +433,33 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         Vector3 hit_p = hit.position + hit.normal * gParams.ray_bias;
         Vector3 hit_normal = hit.normal;
         Material * mat = hit.object->material;
+        Vector4 ambient_color = mat->ambient_color;
+        Vector4 diffuse_color = mat->diffuse_color;
 
+        if (hit.object->type == ObjectType_MeshGroup) {
+            Vector3 interp_normal;
+            u32 idx = hit.vertex0;
+            MeshGroup * mg = hit.object->mesh_group;
+            Mesh * mesh = hit.object->mesh;
+
+            interp_normal += mesh->normals[mg->idx_normals[idx + 0]] * hit.bw.x;
+            interp_normal += mesh->normals[mg->idx_normals[idx + 1]] * hit.bw.y;
+            interp_normal += mesh->normals[mg->idx_normals[idx + 2]] * hit.bw.z;
+            hit_normal = Normalize(interp_normal);
+
+            Vector2 uv;
+            uv += mesh->texcoords[mg->idx_texcoords[idx + 0]] * hit.bw.x;
+            uv += mesh->texcoords[mg->idx_texcoords[idx + 1]] * hit.bw.y;
+            uv += mesh->texcoords[mg->idx_texcoords[idx + 2]] * hit.bw.z;
+
+            if (mat->ambient_texture) {
+                ambient_color *= Texture_SampleBilinear(mat->ambient_texture, uv.x, uv.y);
+            }
+            if (mat->diffuse_texture) {
+                diffuse_color *= Texture_SampleBilinear(mat->diffuse_texture, uv.x, uv.y);
+            }
+        }
+        
         Vector4 direct_light;
         Vector4 direct_specular_light;
         for (u32 i = 0; i < scene->light_count; ++i) {
@@ -497,8 +495,8 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         float w_reflect = (object_reflectivity + (1.0f - object_reflectivity) * fresnel);
         float w_diffuse = 1.0f - w_reflect;
 
-        color += mat->ambient_color * 0.01f;
-        color += (indirect_light + direct_light) * mat->diffuse_color * w_diffuse;
+        color += ambient_color * 0.01f;
+        color += (indirect_light + direct_light) * diffuse_color * w_diffuse;
         color += (indirect_specular_light + direct_specular_light) * mat->specular_color * w_reflect;
 
         // color /= PI32;
@@ -633,7 +631,7 @@ MakeVarianceMap(Framebuffer *fb, float * out_var) {
 }
 
 Vector2 SSAA_Offsets[] = {
-#if 0
+#if 1
     // Four Rooks / Rotated Grid sampling pattern.
     Vector2(-0.375f,  0.125f),
     Vector2( 0.125f,  0.375f),
@@ -648,19 +646,34 @@ static void
 Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     gSpheresChecked = 0;
     gMeshesChecked = 0;
+
+    u32 * sample_counts = (u32 *)calloc(fb->width * fb->height, sizeof(u32));
+
+#if 0
+    u32 sample_pattern_count = array_count(SSSA_Offsets);
+    Vector2 * sample_patterns = SSAA_Offsets;
+#else
+    u32 sample_pattern_count = 4;
+    Vector2 * sample_patterns = (Vector2 *)calloc(sample_pattern_count, sizeof(Vector2));
+    for (u32 i = 0; i < sample_pattern_count; ++i) {
+        sample_patterns[i].x = GetRandFloat11() * 0.5f;
+        sample_patterns[i].y = GetRandFloat11() * 0.5f;
+    }
+#endif
+
     for (u32 y = 0; y < fb->height; ++y) {
         TIME_BLOCK("Render Row");
         for (u32 x = 0; x < fb->width; ++x) {
             // TIME_BLOCK("render pixel");
             gRayCount = 0;
             Vector4 color;
-            // Super-sampled anti-aliasing
-            for (u32 s = 0; s < array_count(SSAA_Offsets); ++s) {
-                Vector2 pos = Vector2(x, y) + SSAA_Offsets[s];
+            for (u32 s = 0; s < sample_pattern_count; ++s) {
+                Vector2 pos = Vector2(x, y) + sample_patterns[s];
                 Ray ray = MakeCameraRay(cam, pos);
                 color += TraceRayColor(ray, scene, gParams.bounce_depth);
+                sample_counts[x + y * fb->width]++;
             }
-            color /= array_count(SSAA_Offsets);
+            color /= sample_pattern_count;
             WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
             fb->DEBUG_rays_cast[x + y * fb->width] = gRayCount;
         }
@@ -671,9 +684,9 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     printf("Start variance reduction\n");
     u32 max_variance_reduction_passes = 8;
 
+    float * var_map = (float *)calloc(fb->width * fb->height, sizeof(float));
     for (u32 pass = 0; pass < max_variance_reduction_passes; ++pass) {
         const float variance_threshold = 3.0f;
-        float * var_map = (float *)calloc(fb->width * fb->height, sizeof(float));
         {
             TIME_BLOCK("Variance Map");
             MakeVarianceMap(fb, var_map);
@@ -699,8 +712,13 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
                 float off_y = GetRandFloat11() * 0.5f;
                 Vector2 pos = Vector2(x + off_x, y + off_y);
                 Ray ray = MakeCameraRay(cam, pos);
-                color += TraceRayColor(ray, scene, gParams.bounce_depth);
-                color *= 0.5f;
+                u32 sample_count = sample_counts[idx];
+                Vector4 sample_color = TraceRayColor(ray, scene, gParams.bounce_depth);
+
+                // Numerically robust incremental average.
+                // http://realtimecollisiondetection.net/blog/?p=48
+                color = color * ((float)sample_count / (sample_count + 1)) 
+                      + sample_color / (float)sample_count;
                 
                 WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
                 fb->DEBUG_rays_cast[x + y * fb->width] += gRayCount;
@@ -711,6 +729,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
         _snprintf(buffer, sizeof(buffer), "rt_out_pass%02d.png", pass + 1);
         stbi_write_png(buffer, fb->width, fb->height, 4, fb->bytes, 0);
     }
+    free(var_map);
 
     u32 pixel_count = fb->height*fb->width;
     printf("Spheres checked:    %llu\n", gSpheresChecked);
@@ -789,7 +808,7 @@ InitParams(int argc, char ** argv) {
     // gParams.camera_position = Vector3(0.0f, 15.0f, 10.0f);
     // gParams.camera_facing = Normalize(Vector3(0.0f, -0.5f, -1));
     gParams.camera_position = Vector3(20.0f, 100.0f, 0.0f);
-    gParams.camera_facing = Normalize(Vector3(-1.0f, 0.0f, 0.0f));
+    gParams.camera_facing = Normalize(Vector3(1.0f, 0.0f, 0.0f));
     gParams.image_output_filename = strdup("rt_out.png"); // Need this to be on the heap; might be free'd later.
     gParams.use_system_rand = 0;
 
@@ -906,7 +925,7 @@ int main(int argc, char ** argv) {
     {
         TIME_BLOCK("Load Mesh");
         // mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/san-miguel/sanMiguel/sanMiguel.obj", transform);
-        mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/crytek-sponza/sponza.obj", transform);
+        mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/crytek-sponza/", "sponza.obj", transform);
     }
     printf("Vertices (p): %u\n", mesh->positions.size());
     printf("Vertices (t): %u\n", mesh->texcoords.size());
@@ -924,14 +943,15 @@ int main(int argc, char ** argv) {
     scene.default_mat = MakeMaterial(Vector4(0.75f, 0.5f, 0.75f, 1.0f));
     for (u32 i = 0; i < hierarchy.mesh_groups.size(); ++i) {
         MeshGroup * mg = hierarchy.mesh_groups[i];
-        if (mg) {
-            total_tris += mg->idx_positions.size() / 3;
-        }
         SceneObject * obj = (SceneObject *)calloc(1, sizeof(SceneObject));
         obj->mesh_group = mg;
         obj->mesh = mesh;
         obj->type = ObjectType_MeshGroup;
         obj->material = scene.default_mat;
+        if (mg) {
+            total_tris += mg->idx_positions.size() / 3;
+            if (mg->material) obj->material = mg->material;
+        }
 
         scene.objects.push_back(obj);
     }
