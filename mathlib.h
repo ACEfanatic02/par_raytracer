@@ -5,15 +5,13 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifdef min
-#undef min
-#endif
+#ifndef min
 #define min(a, b) ((a) < (b) ? (a) : (b))
-
-#ifdef max
-#undef max
 #endif
+
+#ifndef max
 #define max(a, b) ((a) > (b) ? (a) : (b))
+#endif
 
 #define Clamp(n, a, b) (min(max(n, a), b))
 #define Lerp(a, b, t) ((a) + ((b) - (a))*(t))
@@ -90,8 +88,23 @@ operator*(Vector2 a, float b) {
 }
 
 inline Vector2
+operator*(float a, Vector2 b) {
+    return b * a;
+}
+
+inline Vector2
 operator/(Vector2 a, float b) {
     return Vector2(a.x / b, a.y / b);
+}
+
+inline Vector2
+operator/(float a, Vector2 b) {
+    return Vector2(a / b.x, a / b.y);
+}
+
+inline Vector2
+operator-(Vector2 a) {
+    return a * -1.0f;
 }
 
 inline float
@@ -135,7 +148,7 @@ struct Vector3 {
         Set(x, y, z);
     }
 
-    Vector3(Vector3& v) {
+    Vector3(const Vector3& v) {
         Set(v.x, v.y, v.z);
     }
 
@@ -201,8 +214,23 @@ operator*(Vector3 a, float b) {
 }
 
 inline Vector3
+operator*(float a, Vector3 b) {
+    return b * a;
+}
+
+inline Vector3
 operator/(Vector3 a, float b) {
     return Vector3(a.x / b, a.y / b, a.z / b);
+}
+
+inline Vector3
+operator/(float a, Vector3 b) {
+    return Vector3(a / b.x, a / b.y, a / b.z);
+}
+
+inline Vector3
+operator-(Vector3 a) {
+    return a * -1.0f;
 }
 
 inline float
@@ -251,7 +279,7 @@ struct Vector4 {
         Set(x, y, z, w);
     }
 
-    Vector4(Vector4& v) {
+    Vector4(const Vector4& v) {
         Set(v.x, v.y, v.z, v.w);
     }
 
@@ -318,8 +346,23 @@ operator*(Vector4 a, float b) {
 }
 
 inline Vector4
+operator*(float a, Vector4 b) {
+    return b * a;
+}
+
+inline Vector4
 operator/(Vector4 a, float b) {
     return Vector4(a.x / b, a.y / b, a.z / b, a.w / b);
+}
+
+inline Vector4
+operator/(float a, Vector4 b) {
+    return Vector4(a / b.x, a / b.y, a / b.z, a / b.w);
+}
+
+inline Vector4
+operator-(Vector4 a) {
+    return a * -1.0f;
 }
 
 inline float 
@@ -353,7 +396,7 @@ struct Matrix22 {
             0.0f, 0.0f);
     }
 
-    Matrix22(Matrix22& m) {
+    Matrix22(const Matrix22& m) {
         Set(m(0, 0), m(0, 1),
             m(1, 0), m(1, 1));
     }
@@ -505,7 +548,7 @@ struct Matrix33 {
             0.0f, 0.0f, 0.0f);
     }
 
-    Matrix33(Matrix33& m) {
+    Matrix33(const Matrix33& m) {
         Set(m(0, 0), m(0, 1), m(0, 2), 
             m(1, 0), m(1, 1), m(1, 2), 
             m(2, 0), m(2, 1), m(2, 2));
@@ -742,6 +785,23 @@ Matrix33_FromToRotation(Vector3 from, Vector3 to) {
 // TODO(bryan):  Want a proper "LookAt" function as well, that tries to 
 // preserve up.  Can I express that with FromTo?
 
+static Matrix33
+Matrix33_FromAxisAngle(Vector3 axis, float theta) {
+    float c = cosf(theta);
+    float s = sinf(theta);
+
+    float t = 1.0f - c;
+    float x = axis.x;
+    float y = axis.y;
+    float z = axis.z;
+
+    return Matrix33(
+            t*x*x + c,    t*x*y - z*s,  t*x*z + y*s,
+            t*x*y + z*s,  t*y*y + c,    t*y*z - x*s,
+            t*x*z - y*s,  t*y*z + z*s,  t*z*z + c
+        );
+}
+
 inline Matrix33
 Invert(Matrix33 m) {
     float det = Determinant(m);
@@ -776,7 +836,7 @@ struct Matrix44 {
             0.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    Matrix44(Matrix44& m) {
+    Matrix44(const Matrix44& m) {
         Set(m(0, 0), m(0, 1), m(0, 2), m(0,3), 
             m(1, 0), m(1, 1), m(1, 2), m(1,3), 
             m(2, 0), m(2, 1), m(2, 2), m(2,3),
@@ -993,6 +1053,69 @@ Matrix44_TransformPoint(Matrix44 a, Vector3 b) {
     return Vector3(bb.x, bb.y, bb.z);    
 }
 
+static bool
+Invert(Matrix44 m, Matrix44 * result) {
+    // Method:  Laplace expansion.
+    #define DET2(a, b, c, d) ((a)*(d) - (b)*(c))
+
+    float s0 = DET2(m(0, 0), m(0, 1), m(1, 0), m(1, 1));
+    float s1 = DET2(m(0, 0), m(0, 2), m(1, 0), m(1, 2));
+    float s2 = DET2(m(0, 0), m(0, 3), m(1, 0), m(1, 3));
+
+    float s3 = DET2(m(0, 1), m(0, 2), m(1, 1), m(1, 2));
+    float s4 = DET2(m(0, 1), m(0, 3), m(1, 1), m(1, 3));
+    float s5 = DET2(m(0, 2), m(0, 3), m(1, 2), m(1, 3));
+
+    float c0 = DET2(m(2, 0), m(2, 1), m(3, 0), m(3, 1));
+    float c1 = DET2(m(2, 0), m(2, 2), m(3, 0), m(3, 2));
+    float c2 = DET2(m(2, 0), m(2, 3), m(3, 0), m(3, 3));
+
+    float c3 = DET2(m(2, 1), m(2, 2), m(3, 1), m(3, 2));
+    float c4 = DET2(m(2, 1), m(2, 3), m(3, 1), m(3, 3));
+    float c5 = DET2(m(2, 2), m(2, 3), m(3, 2), m(3, 3));
+
+    #undef DET2
+
+    float det = s0*c5 - s1*c4 + s2*c3 + s3*c2 - s4*c1 + s5*c0;
+
+    const float EPSILON = 1e-6;
+    if (fabs(det) <= EPSILON) {
+        // Determinant ~= 0, unable to invert.
+        return false;
+    }
+
+    float rcp_det = 1.0f / det;
+
+    float m00 = ( m(1, 1)*c5 - m(1, 2)*c4 + m(1, 3)*c3) * rcp_det;
+    float m01 = (-m(0, 1)*c5 + m(0, 2)*c4 - m(0, 3)*c3) * rcp_det;
+    float m02 = ( m(3, 1)*s5 - m(3, 2)*s4 + m(3, 3)*s3) * rcp_det;
+    float m03 = (-m(2, 1)*s5 + m(2, 2)*s4 - m(2, 3)*s3) * rcp_det;
+
+    float m10 = (-m(1, 0)*c5 + m(1, 2)*c2 - m(1, 3)*c1) * rcp_det;
+    float m11 = ( m(0, 0)*c5 - m(0, 2)*c2 + m(0, 3)*c1) * rcp_det;
+    float m12 = (-m(3, 0)*s5 + m(3, 2)*s2 - m(3, 3)*s1) * rcp_det;
+    float m13 = ( m(2, 0)*s5 - m(2, 2)*s2 + m(2, 3)*s1) * rcp_det;
+
+    float m20 = ( m(1, 0)*c4 - m(1, 1)*c2 + m(1, 3)*c0) * rcp_det;
+    float m21 = (-m(0, 0)*c4 + m(0, 1)*c2 - m(0, 3)*c0) * rcp_det;
+    float m22 = ( m(3, 0)*s4 - m(3, 1)*s2 + m(3, 3)*s0) * rcp_det;
+    float m23 = (-m(2, 0)*s4 + m(2, 1)*s2 - m(2, 3)*s0) * rcp_det;
+
+    float m30 = (-m(1, 0)*c3 + m(1, 1)*c1 - m(1, 2)*c0) * rcp_det;
+    float m31 = ( m(0, 0)*c3 - m(0, 1)*c1 + m(0, 2)*c0) * rcp_det;
+    float m32 = (-m(3, 0)*s3 + m(3, 1)*s1 - m(3, 2)*s0) * rcp_det;
+    float m33 = ( m(2, 0)*s3 - m(2, 1)*s1 + m(2, 2)*s0) * rcp_det;
+
+    result->Set(
+        m00, m01, m02, m03,
+        m10, m11, m12, m13,
+        m20, m21, m22, m23,
+        m30, m31, m32, m33
+    );
+
+    return true;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 struct Quaternion {
@@ -1005,7 +1128,7 @@ struct Quaternion {
         Set(1.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    Quaternion(Quaternion& q) {
+    Quaternion(const Quaternion& q) {
         Set(q.w, q.x, q.y, q.z);
     }
 
@@ -1048,10 +1171,24 @@ operator*(Quaternion a, float b) {
 }
 
 inline Quaternion
+operator*(float a, Quaternion b) {
+    return b * a;
+}
+
+inline Quaternion
 operator/(Quaternion a, float b) {
     return Quaternion(a.w / b, a.x / b, a.y / b, a.z / b);
 }
 
+inline Quaternion
+operator/(float a, Quaternion b) {
+    return Quaternion(a / b.w, a / b.x, a / b.y, a / b.z);
+}
+
+inline Quaternion
+operator-(Quaternion q) {
+    return q * -1.0f;
+}
 
 inline Quaternion
 operator*(Quaternion a, Quaternion b) {

@@ -20,6 +20,26 @@ Color_SRGBToLinear(float srgb) {
     }
 }
 
+inline Vector4
+Color_LinearToSRGB(Vector4 linear) {
+    return Vector4(
+            Color_LinearToSRGB(linear.x),
+            Color_LinearToSRGB(linear.y),
+            Color_LinearToSRGB(linear.z),
+            Color_LinearToSRGB(linear.w)
+        );
+}
+
+inline Vector4
+Color_SRGBToLinear(Vector4 srgb) {
+    return Vector4(
+            Color_SRGBToLinear(srgb.x),
+            Color_SRGBToLinear(srgb.y),
+            Color_SRGBToLinear(srgb.z),
+            Color_SRGBToLinear(srgb.w)
+        );
+}
+
 static Vector4
 Color_RGBToHSV(Vector4 rgba) {
     // http://lolengine.net/blog/2013/01/13/fast-rgb-to-hsv
@@ -69,6 +89,11 @@ Color_BlendHSV(Vector4 rgba0, Vector4 rgba1, float t) {
     Vector4 hsv1 = Color_RGBToHSV(rgba1);
 
     return Color_HSVToRGB(Lerp(hsv0, hsv1, t));
+}
+
+inline float
+Color_Luma(Vector4 rgba) {
+    return 0.2126f * rgba.x + 0.7152f * rgba.y + 0.0722f * rgba.z;
 }
 
 inline Vector4

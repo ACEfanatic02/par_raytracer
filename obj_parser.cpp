@@ -254,6 +254,7 @@ ParseMTL(char * filename) {
                         assert(false);
                     }
                     material = (Material *)calloc(1, sizeof(Material));
+                    material->name = name;
                     lib->materials[name] = material;
                 }
             } break;

@@ -17,7 +17,7 @@
 #include "bsphere.cpp"
 #include "texture.cpp"
 
-static u32 gRayCount;
+static u64 gRayCount;
 static u64 gSpheresChecked;
 static u64 gMeshesChecked;
 
@@ -106,7 +106,7 @@ IntersectRaySphere(Ray ray, Sphere sphere, RaycastHit * out_hit) {
 
     float t = -b - sqrtf(discriminant);
     if (t < 0.0f) t = 0.0f;
-    Vector3 p = ray.direction * t;
+    Vector3 p = ray.origin + ray.direction * t;
     out_hit->t = t;
     out_hit->position = p;
     out_hit->normal = Normalize(p - sphere.center);
@@ -172,7 +172,7 @@ IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, RaycastHit * out_
     out_hit->bw.y = v * ood;
     out_hit->bw.z = w * ood;
     out_hit->bw.x = 1.0f - out_hit->bw.y - out_hit->bw.z;
-    out_hit->position = ray.direction * out_hit->t;
+    out_hit->position = ray.origin + ray.direction * out_hit->t;
     out_hit->normal = Normalize(normal);
 
     return true;
@@ -331,7 +331,6 @@ GetRandFloat11() {
 
 static Ray
 GetRayInCone(Vector3 origin, Vector3 normal, float * cos_theta, float min_cos) {
-    Matrix33 normal_to_world = Matrix33_FromToRotation(normal, Vector3(0.0f, 1.0f, 0.0f));
     Ray ray;
     ray.origin = origin;
 
@@ -339,6 +338,7 @@ GetRayInCone(Vector3 origin, Vector3 normal, float * cos_theta, float min_cos) {
     float angle = GetRandFloat01() * PI32 * 2.0f;
     // Pick random height along normal
     float z = Lerp(min_cos, 1.0f, GetRandFloat01());
+    z = Clamp(z, min_cos, 1.0f);
     // Project that height onto the tangent plane
     float xy = (1.0f - z*z);
     // Calculate the tangent components
@@ -347,7 +347,20 @@ GetRayInCone(Vector3 origin, Vector3 normal, float * cos_theta, float min_cos) {
     float x = xy * ct;
     float y = xy * st;
     // Renormalize just to be sure.
-    ray.direction = normal_to_world * Normalize(Vector3(x, y, z));
+
+    static const float epsilon = 1e-5;
+    Vector3 v = Normalize(Vector3(x, y, z));
+    float d = Dot(normal, Vector3(0, 0, 1));
+    if (d > 1.0f - epsilon) {
+        ray.direction = v;
+    }
+    else if (d < -1.0f + epsilon) {
+        ray.direction = -v;
+    }
+    else {
+        Vector3 axis = Normalize(Cross(Vector3(0, 0, 1), normal));
+        ray.direction = Normalize(Matrix33_FromAxisAngle(axis, acosf(d)) * v);
+    }
 
     *cos_theta = ct;
     return ray;
@@ -367,7 +380,7 @@ inline float
 FresnelAmount(float ior_exit, float ior_enter, Vector3 normal, Vector3 incident) {
     float r0 = (ior_exit - ior_enter) / (ior_exit + ior_enter);
     r0 *= r0;
-    float ct = -Dot(normal, incident);
+    float ct = max(0.0f, -Dot(normal, incident));
     if (ior_exit > ior_enter) {
         float n = ior_exit / ior_enter;
         float st_sq = n*n*(1.0f - ct*ct);
@@ -381,7 +394,11 @@ FresnelAmount(float ior_exit, float ior_enter, Vector3 normal, Vector3 incident)
     // multiplication because FP math is (ノ｀Д´)ノ彡┻━┻
     float x2 = x*x;
     float x3 = x*x2;
-    return r0 + (1.0f - r0)*x2*x3;
+    float rv = r0 + (1.0f - r0)*x2*x3;
+
+    assert(rv >= -1.0f && rv <= 1.0f);
+
+    return rv;
 }
 
 struct LightingResult {
@@ -442,22 +459,34 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
             MeshGroup * mg = hit.object->mesh_group;
             Mesh * mesh = hit.object->mesh;
 
-            interp_normal += mesh->normals[mg->idx_normals[idx + 0]] * hit.bw.x;
-            interp_normal += mesh->normals[mg->idx_normals[idx + 1]] * hit.bw.y;
-            interp_normal += mesh->normals[mg->idx_normals[idx + 2]] * hit.bw.z;
-            hit_normal = Normalize(interp_normal);
-
             Vector2 uv;
             uv += mesh->texcoords[mg->idx_texcoords[idx + 0]] * hit.bw.x;
             uv += mesh->texcoords[mg->idx_texcoords[idx + 1]] * hit.bw.y;
             uv += mesh->texcoords[mg->idx_texcoords[idx + 2]] * hit.bw.z;
+            if (mat->alpha <= 1.0f || mat->alpha_texture) {
+                float alpha = mat->alpha;
+                if (mat->alpha_texture) {
+                    alpha *= Texture_SampleBilinear(mat->alpha_texture, uv.x, uv.y).x;
+                }
 
+                if (alpha <= 0.5f) {
+                    // TODO(bryan):  If the pixel is translucent, we want to blend between transparent and opaque.
+                    ray.origin = hit.position + ray.direction;// * gParams.ray_bias * 2.0f;
+                    return TraceRayColor(ray, scene, iters);
+                }
+            }
             if (mat->ambient_texture) {
                 ambient_color *= Texture_SampleBilinear(mat->ambient_texture, uv.x, uv.y);
             }
             if (mat->diffuse_texture) {
                 diffuse_color *= Texture_SampleBilinear(mat->diffuse_texture, uv.x, uv.y);
             }
+
+            interp_normal += mesh->normals[mg->idx_normals[idx + 0]] * hit.bw.x;
+            interp_normal += mesh->normals[mg->idx_normals[idx + 1]] * hit.bw.y;
+            interp_normal += mesh->normals[mg->idx_normals[idx + 2]] * hit.bw.z;
+            hit_normal = Normalize(interp_normal);
+
         }
         
         Vector4 direct_light;
@@ -473,9 +502,17 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         if (iters > 0) {
             for (u32 samp = 0; samp < gParams.reflection_samples; ++samp) {
                 float cos_theta = 0.0f;
-                Ray reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal, &cos_theta);
+                Ray reflect_ray;
+                float d;
+                do {
+                    reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal, &cos_theta);
+                    d = Dot(hit_normal, reflect_ray.direction);
+                    // NOTE(bryan):  BUG
+                    // It's unclear how we're getting rays that point away from
+                    // the normal, since we're specifically selecting rays in the hemisphere.
+                } while (d < 0.0f);
                 Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1);
-                indirect_light += reflect_color * cos_theta;
+                indirect_light += reflect_color * d;
             }
             indirect_light /= gParams.reflection_samples;
 
@@ -495,11 +532,19 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         float w_reflect = (object_reflectivity + (1.0f - object_reflectivity) * fresnel);
         float w_diffuse = 1.0f - w_reflect;
 
-        color += ambient_color * 0.01f;
+        //w_reflect = Clamp(w_reflect, 0.0f, 1.0f);
+        //w_diffuse = Clamp(w_diffuse, 0.0f, 1.0f);
+
+        color += ambient_color * 0.1f;
         color += (indirect_light + direct_light) * diffuse_color * w_diffuse;
         color += (indirect_specular_light + direct_specular_light) * mat->specular_color * w_reflect;
+        
+        color /= PI32;
+        assert(color.x >= 0.0f);
+        assert(color.y >= 0.0f);
+        assert(color.z >= 0.0f);
+        assert(color.w >= 0.0f);
 
-        // color /= PI32;
         // color = Color_FromNormal(hit_normal);
         // if (hit.object->type == ObjectType_MeshGroup) {
         //     Vector3 interp_normal;
@@ -520,7 +565,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
 }
 
 struct Framebuffer {
-    u8 * bytes;
+    Vector4 * pixels;
     u32 width;
     u32 height;
     u32 * DEBUG_rays_cast;
@@ -528,13 +573,81 @@ struct Framebuffer {
 
 static void
 WriteColor(Framebuffer * fb, u32 x, u32 y, float r, float g, float b, float a) {
-    Vector4 c(Color_LinearToSRGB(r),
-              Color_LinearToSRGB(g),
-              Color_LinearToSRGB(b),
-              Color_LinearToSRGB(a));
+    u32 idx = fb->width * y + x;
+    fb->pixels[idx].x = r;
+    fb->pixels[idx].y = g;
+    fb->pixels[idx].z = b;
+    fb->pixels[idx].w = a;
+}
 
-    u32 offset = (y * fb->width + x) * 4;
-    Color_Pack(fb->bytes + offset, c);
+static float
+LogAverageLuma(Framebuffer * fb) {
+    // Log-average / geometric mean of scene luma:
+    //
+    // L_w = exp(1/N * sum(log(d + L(x, y))))
+    //
+    float lavg = 0.0f;
+    for (u32 y = 0; y < fb->height; ++y) {
+        for (u32 x = 0; x < fb->width; ++x) {
+            u32 idx = y * fb->width + x;
+            Vector4 c = fb->pixels[idx];
+            float cluma = Color_Luma(c);
+            if (cluma > 0.0f) {
+                lavg += logf(0.01f + cluma);
+            }
+            else {
+                printf("Non-positive luma at (%u, %u): %f\n", x, y, cluma);
+            }
+        }
+    }
+    return expf(lavg / (float)(fb->width * fb->height));
+}
+
+static void
+WriteFramebufferImage(Framebuffer * fb, char * filename) {
+    float scene_luma = LogAverageLuma(fb);
+    u8 * buffer = (u8 *)calloc(fb->width * fb->height, 4);
+    printf("scene_luma = %f\n", scene_luma);
+    for (u32 y = 0; y < fb->height; ++y) {
+        for (u32 x = 0; x < fb->width; ++x) {
+            u32 idx = y * fb->width + x;
+            Vector4 c = fb->pixels[idx];
+#if 0
+            // Filmic tone mapping
+            c.x = max(0.0f, c.x - 0.004f);
+            c.y = max(0.0f, c.y - 0.004f);
+            c.z = max(0.0f, c.z - 0.004f);
+
+            c.x = (c.x * (6.2f * c.x + 0.5f)) / (c.x * (6.2f * c.x + 1.7f) + 0.06f);
+            c.y = (c.y * (6.2f * c.y + 0.5f)) / (c.y * (6.2f * c.y + 1.7f) + 0.06f);
+            c.z = (c.z * (6.2f * c.z + 0.5f)) / (c.z * (6.2f * c.z + 1.7f) + 0.06f);
+#else
+            // Modified Reinhard operator, maintains whites.
+            // static const float white_luma = 4.0f;
+            // float pixel_luma = Color_Luma(c);
+            // // float tone_luma = (pixel_luma * (1.0f + (pixel_luma / (white_luma*white_luma)))) / (1.0f + pixel_luma);
+            // float tone_luma = (0.18f / scene_luma) * pixel_luma;
+            // float scale = pixel_luma / tone_luma;
+            // c.x *= scale;
+            // c.y *= scale;
+            // c.z *= scale;
+
+            float key_alpha = 0.18f;
+            float pixel_luma = Color_Luma(c);
+            float l_xy = key_alpha * pixel_luma / scene_luma;
+            float l_d = l_xy / (1.0f + l_xy);
+
+            float scale = l_d / pixel_luma;
+            c.x *= scale;
+            c.y *= scale;
+            c.z *= scale;
+#endif
+            Color_Pack(buffer + idx * 4, c);
+        }
+    }
+
+    stbi_write_png(filename, fb->width, fb->height, 4, buffer, 0);
+    free(buffer);
 }
 
 struct Camera {
@@ -604,7 +717,7 @@ CalculateLocalVariance(Framebuffer *fb, u32 x, u32 y) {
     Vector4 mean;
     for (u32 yy = min_y; yy <= max_y; ++yy) {
         for (u32 xx = min_x; xx <= max_x; ++xx) {
-            mean += Color_Unpack(fb->bytes + (yy*fb->width + xx)*4);
+            mean += fb->pixels[yy*fb->width + xx];
         }
     }
 
@@ -612,7 +725,7 @@ CalculateLocalVariance(Framebuffer *fb, u32 x, u32 y) {
         for (u32 xx = min_x; xx <= max_x; ++xx) {
             u32 idx = yy * fb->width + xx;
 
-            Vector4 c0 = Color_Unpack(fb->bytes + idx * 4);
+            Vector4 c0 = fb->pixels[idx];
             float d = Color_Distance(c0, mean);
             sum += d*d;
         }
@@ -653,7 +766,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     u32 sample_pattern_count = array_count(SSSA_Offsets);
     Vector2 * sample_patterns = SSAA_Offsets;
 #else
-    u32 sample_pattern_count = 4;
+    u32 sample_pattern_count = 8;
     Vector2 * sample_patterns = (Vector2 *)calloc(sample_pattern_count, sizeof(Vector2));
     for (u32 i = 0; i < sample_pattern_count; ++i) {
         sample_patterns[i].x = GetRandFloat11() * 0.5f;
@@ -679,7 +792,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
         }
     }
 
-    stbi_write_png("rt_out_beforevar.png", fb->width, fb->height, 4, fb->bytes, 0);
+    WriteFramebufferImage(fb, "rt_out_beforevar.png");
 
     printf("Start variance reduction\n");
     u32 max_variance_reduction_passes = 8;
@@ -702,17 +815,13 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
                 }
 
                 gRayCount = 0;
-                Vector4 color = Color_Unpack(fb->bytes + idx * 4);
-                color.x = Color_SRGBToLinear(color.x);
-                color.y = Color_SRGBToLinear(color.y);
-                color.z = Color_SRGBToLinear(color.z);
-                color.w = Color_SRGBToLinear(color.w);
+                Vector4 color = fb->pixels[idx];
 
                 float off_x = GetRandFloat11() * 0.5f;
                 float off_y = GetRandFloat11() * 0.5f;
                 Vector2 pos = Vector2(x + off_x, y + off_y);
                 Ray ray = MakeCameraRay(cam, pos);
-                u32 sample_count = sample_counts[idx];
+                u32 sample_count = sample_counts[idx]++;
                 Vector4 sample_color = TraceRayColor(ray, scene, gParams.bounce_depth);
 
                 // Numerically robust incremental average.
@@ -727,7 +836,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
         }
         char buffer[256];
         _snprintf(buffer, sizeof(buffer), "rt_out_pass%02d.png", pass + 1);
-        stbi_write_png(buffer, fb->width, fb->height, 4, fb->bytes, 0);
+        WriteFramebufferImage(fb, buffer);
     }
     free(var_map);
 
@@ -888,22 +997,30 @@ static Scene
 InitScene() {
     LightSource * lights = (LightSource *)calloc(3, sizeof(LightSource));
     lights[0].type = Light_Directional;
-    lights[0].color = Vector4(1, 1, 1, 1);
-    lights[0].facing = Vector3(0, -1, 0);
+    lights[0].color = Vector4(0.9f, 1.0f, 0.95f, 1.0f) * 4.0f;
+    lights[0].facing = Normalize(Vector3(1.0f, -1.5f, 0.15f));
 
     lights[1].type = Light_Directional;
-    lights[1].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    lights[1].facing = Normalize(Vector3(1.0f, -1.0f, 0.0f));
+    lights[1].color = Vector4(0.9f, 1.0f, 0.95f, 1.0f) * 2.0f;
+    lights[1].facing = Normalize(Vector3(1.0f, -1.5f, 0.25f));
 
-    lights[2].type = Light_Point;
-    lights[2].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    lights[2].position = Vector3(500.0f, 250.0f, 0.0f);
+    // lights[0].type = Light_Directional;
+    // lights[0].color = Vector4(1, 1, 1, 1) * 4.0f;
+    // lights[0].facing = Vector3(0, -1, 0);
+
+    // lights[1].type = Light_Directional;
+    // lights[1].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+    // lights[1].facing = Normalize(Vector3(1.0f, -1.0f, 0.0f));
+
+    // lights[2].type = Light_Point;
+    // lights[2].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+    // lights[2].position = Vector3(500.0f, 250.0f, 0.0f);
 
     Scene scene;
     scene.lights = lights;
-    scene.light_count = 3;
+    scene.light_count = 1;
 
-    return scene;    
+    return scene;
 }
 
 int main(int argc, char ** argv) {
@@ -914,8 +1031,10 @@ int main(int argc, char ** argv) {
     // fb.height = 480;
     fb.width = 128*2;
     fb.height = 96*2;
-    fb.bytes = (u8 *)calloc(4, fb.width * fb.height);
-    fb.DEBUG_rays_cast = (u32 *)calloc(sizeof(u32), fb.width*fb.height);
+    // fb.width  = 64;
+    // fb.height = 48;
+    fb.pixels = (Vector4 *)calloc(fb.width * fb.height, sizeof(Vector4));
+    fb.DEBUG_rays_cast = (u32 *)calloc(fb.width*fb.height, sizeof(u32));
 
     Camera cam = MakeCamera(gParams.camera_fov, &fb);
     Mesh * mesh;
@@ -959,26 +1078,28 @@ int main(int argc, char ** argv) {
 
     Render(&cam, &fb, &scene);
 
-    stbi_write_png(gParams.image_output_filename, fb.width, fb.height, 4, fb.bytes, 0);
+    WriteFramebufferImage(&fb, gParams.image_output_filename);
 
     float scale = 1.0f / (float)(1 << 16);
 
     s64 total_rays_cast = 0;
     s64 max_rays_cast = 0;
+
     for (u32 y = 0; y < fb.height; ++y) {
         for (u32 x = 0; x < fb.width; ++x) {
             u32 count = fb.DEBUG_rays_cast[x + y * fb.width];
             total_rays_cast += count;
             max_rays_cast = max(max_rays_cast, count);
-
-            float h = (1.0f - (float)(count * scale)) * 240.0f;
-            Vector4 hsv(h/360.0f, 1.0f, 5.0f, 1.0f);
-            Vector4 rgb = Color_HSVToRGB(hsv);
-
-            u32 offset = (y * fb.width + x) * 4;
-            Color_Pack(fb.bytes + offset, rgb);
         }
     }
+    //         float h = (1.0f - (float)(count * scale)) * 240.0f;
+    //         Vector4 hsv(h/360.0f, 1.0f, 5.0f, 1.0f);
+    //         Vector4 rgb = Color_HSVToRGB(hsv);
+
+    //         u32 offset = (y * fb.width + x) * 4;
+    //         Color_Pack(fb.bytes + offset, rgb);
+    //     }
+    // }
 
     double total_pixels = (double)(fb.height*fb.width);
     double mean = (double)total_rays_cast / total_pixels;
@@ -997,7 +1118,7 @@ int main(int argc, char ** argv) {
     printf("Variance:        %8.8f\n", variance);
     printf("Std. Dev:        %8.8f\n", std_dev);
 
-    stbi_write_png("rt_rays_out.png", fb.width, fb.height, 4, fb.bytes, 0);
+    // stbi_write_png("rt_rays_out.png", fb.width, fb.height, 4, fb.bytes, 0);
 
     return 0;
 }

@@ -16,6 +16,7 @@ struct Material {
     float specular_intensity;
     float index_of_refraction;
     float alpha;
+    char * name;
 
     Vector4 ambient_color;
     Vector4 diffuse_color;
