@@ -9,6 +9,7 @@
 #include "mesh.h"
 #include "geometry.h"
 #include "timing.h"
+#include "scene.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "lib/stb_image_write.h"
@@ -31,45 +32,7 @@ struct {
     Vector3 camera_position;
     Vector3 camera_facing;
     char * image_output_filename;
-    u32 use_system_rand;
 } gParams;
-
-enum LightSourceType {
-    Light_Directional,
-    // Light_Spot,
-    Light_Point,
-};
-
-struct LightSource {
-    LightSourceType type;
-    Vector4 color;
-    Vector3 position;
-    Vector3 facing;
-    float falloff;
-};
-
-enum ObjectType {
-    ObjectType_Sphere,
-    ObjectType_MeshGroup,
-};
-
-struct SceneObject {
-    struct {
-        Sphere sphere;
-        MeshGroup * mesh_group;
-        Mesh * mesh;
-    };
-    ObjectType type;
-    Material * material;
-};
-
-struct Scene {
-    std::vector<SceneObject *> objects;
-    BoundingHierarchy * hierarchy;
-    LightSource * lights;
-    u32 light_count;
-    Material * default_mat;
-};
 
 struct RaycastHit {
     float t;
@@ -307,26 +270,12 @@ static bool rng_init = false;
 
 static float
 GetRandFloat01() {
-    if (!gParams.use_system_rand) {
-        if (!rng_init) {
-            Random_Seed(&rng, 0xdeadbeef01234567ull);
-            rng_init = true;
-        }
-        return Random_NextFloat01(&rng);      
-    }
-    return (float)rand() / (float)RAND_MAX;
+    return Random_NextFloat01(&rng);      
 }
 
 static float
 GetRandFloat11() {
-    if (!gParams.use_system_rand) {
-        if (!rng_init) {
-            Random_Seed(&rng, 0xdeadbeef01234567ull);
-            rng_init = true;
-        }
-        return Random_NextFloat11(&rng);
-    }
-    return GetRandFloat01() * 2.0f - 1.0f;
+    return Random_NextFloat11(&rng);
 }
 
 static Ray
@@ -514,7 +463,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
                 Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1);
                 indirect_light += reflect_color * d;
             }
-            indirect_light /= gParams.reflection_samples;
+            // indirect_light /= gParams.reflection_samples;
 
             for (u32 samp = 0; samp < gParams.spec_samples; ++samp) {
                 float cos_theta = 0.0f;
@@ -524,7 +473,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
 
                 indirect_specular_light += spec_color;
             }
-            indirect_specular_light /= gParams.spec_samples;
+            // indirect_specular_light /= gParams.spec_samples;
         }
 
         float object_reflectivity = 0.05f;// TODO
@@ -539,7 +488,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         color += (indirect_light + direct_light) * diffuse_color * w_diffuse;
         color += (indirect_specular_light + direct_specular_light) * mat->specular_color * w_reflect;
         
-        color /= PI32;
+        // color /= PI32;
         assert(color.x >= 0.0f);
         assert(color.y >= 0.0f);
         assert(color.z >= 0.0f);
@@ -743,6 +692,9 @@ MakeVarianceMap(Framebuffer *fb, float * out_var) {
     }
 }
 
+#include <thread>
+#include <atomic>
+
 Vector2 SSAA_Offsets[] = {
 #if 1
     // Four Rooks / Rotated Grid sampling pattern.
@@ -755,6 +707,46 @@ Vector2 SSAA_Offsets[] = {
 #endif
 };
 
+Vector2 * sample_patterns = SSAA_Offsets;
+u32 sample_pattern_count = array_count(SSAA_Offsets);
+
+struct RenderJob {
+    Camera * cam;
+    Scene * scene;
+    Framebuffer * fb;
+    u32 * sample_counts;
+    // u32 x;
+    u32 y;
+};
+
+static void
+RenderTask(RenderJob * job) {
+    for (u32 x = 0; x < job->fb->width; ++x) {
+        Vector4 color;
+        for (u32 s = 0; s < sample_pattern_count; ++s) {
+            Vector2 pos = Vector2(x, job->y) + sample_patterns[s];
+            Ray ray = MakeCameraRay(job->cam, pos);
+            color += TraceRayColor(ray, job->scene, gParams.bounce_depth);
+            job->sample_counts[x + job->y * job->fb->width]++;
+        }
+        color /= sample_pattern_count;
+        WriteColor(job->fb, x, job->y, color.x, color.y, color.z, 1.0f);
+    }
+}
+
+std::vector<RenderJob> task_list;
+std::atomic<u32> next_task;
+
+static void
+RenderQueueWorker() {
+    while (next_task < task_list.size()) {
+        u32 task_id = next_task++;
+
+        RenderJob * j = &task_list[task_id];
+        RenderTask(j); 
+    }
+}
+
 static void
 Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     gSpheresChecked = 0;
@@ -766,7 +758,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     u32 sample_pattern_count = array_count(SSSA_Offsets);
     Vector2 * sample_patterns = SSAA_Offsets;
 #else
-    u32 sample_pattern_count = 8;
+    u32 sample_pattern_count = 64;
     Vector2 * sample_patterns = (Vector2 *)calloc(sample_pattern_count, sizeof(Vector2));
     for (u32 i = 0; i < sample_pattern_count; ++i) {
         sample_patterns[i].x = GetRandFloat11() * 0.5f;
@@ -775,20 +767,42 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
 #endif
 
     for (u32 y = 0; y < fb->height; ++y) {
-        TIME_BLOCK("Render Row");
-        for (u32 x = 0; x < fb->width; ++x) {
+        // TIME_BLOCK("Render Row");
+        // for (u32 x = 0; x < fb->width; ++x) {
             // TIME_BLOCK("render pixel");
-            gRayCount = 0;
-            Vector4 color;
-            for (u32 s = 0; s < sample_pattern_count; ++s) {
-                Vector2 pos = Vector2(x, y) + sample_patterns[s];
-                Ray ray = MakeCameraRay(cam, pos);
-                color += TraceRayColor(ray, scene, gParams.bounce_depth);
-                sample_counts[x + y * fb->width]++;
-            }
-            color /= sample_pattern_count;
-            WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
-            fb->DEBUG_rays_cast[x + y * fb->width] = gRayCount;
+            // gRayCount = 0;
+            // Vector4 color;
+            // for (u32 s = 0; s < sample_pattern_count; ++s) {
+            //     Vector2 pos = Vector2(x, y) + sample_patterns[s];
+            //     Ray ray = MakeCameraRay(cam, pos);
+            //     color += TraceRayColor(ray, scene, gParams.bounce_depth);
+            //     sample_counts[x + y * fb->width]++;
+            // }
+            // color /= sample_pattern_count;
+            // WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
+            // fb->DEBUG_rays_cast[x + y * fb->width] = gRayCount;
+            RenderJob job;
+            job.cam = cam;
+            job.scene = scene;
+            job.fb = fb;
+            job.sample_counts = sample_counts;
+            job.y = y;
+
+            task_list.push_back(job);
+        // }
+    }
+
+    {
+        TIME_BLOCK("Render MT");
+        u32 thread_count = std::thread::hardware_concurrency() - 1;
+        std::vector<std::thread> threads;
+        for (u32 i = 0; i < thread_count; ++i) {
+            threads.push_back(std::thread(RenderQueueWorker));
+        }
+        printf("%u render worker threads started.\n", thread_count);
+
+        for (u32 i = 0; i < thread_count; ++i) {
+            threads[i].join();
         }
     }
 
@@ -919,7 +933,6 @@ InitParams(int argc, char ** argv) {
     gParams.camera_position = Vector3(20.0f, 100.0f, 0.0f);
     gParams.camera_facing = Normalize(Vector3(1.0f, 0.0f, 0.0f));
     gParams.image_output_filename = strdup("rt_out.png"); // Need this to be on the heap; might be free'd later.
-    gParams.use_system_rand = 0;
 
     // TODO(bryan):  INI
 
@@ -972,10 +985,6 @@ InitParams(int argc, char ** argv) {
             gParams.image_output_filename = strdup(argv[arg_i + 1]);
             arg_i++;
         }
-        else if (STATIC_STRNCMP("--rng", arg)) {
-            Argv_ReadU32(argc, argv, arg_i, &gParams.use_system_rand);
-            arg_i++;            
-        }
 #undef STATIC_STRNCMP
     }
 }
@@ -1001,8 +1010,8 @@ InitScene() {
     lights[0].facing = Normalize(Vector3(1.0f, -1.5f, 0.15f));
 
     lights[1].type = Light_Directional;
-    lights[1].color = Vector4(0.9f, 1.0f, 0.95f, 1.0f) * 2.0f;
-    lights[1].facing = Normalize(Vector3(1.0f, -1.5f, 0.25f));
+    lights[1].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f) * 1.0f;
+    lights[1].facing = Normalize(Vector3(0.0f, -1.0f, 0.0f));
 
     // lights[0].type = Light_Directional;
     // lights[0].color = Vector4(1, 1, 1, 1) * 4.0f;
