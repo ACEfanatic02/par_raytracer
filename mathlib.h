@@ -5,14 +5,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifndef min
-#define min(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef max
-#define max(a, b) ((a) > (b) ? (a) : (b))
-#endif
-
 #define Clamp(n, a, b) (min(max(n, a), b))
 #define Lerp(a, b, t) ((a) + ((b) - (a))*(t))
 
@@ -1246,7 +1238,6 @@ Quaternion_ToMatrix(Quaternion q) {
     float xx = q.x*q.x;
     float yy = q.y*q.y;
     float zz = q.z*q.z;
-    float ww = q.w*q.w;
     
     float m00 = 1.0f - 2.0f*(zz + yy);
     float m01 = 2.0f * (xy - zw);
