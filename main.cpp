@@ -127,10 +127,10 @@ Color_Distance(Vector4 a, Vector4 b) {
 
 static float
 CalculateLocalVariance(Framebuffer *fb, u32 x, u32 y) {
-    u32 min_x = min(x - 2, 0);
-    u32 max_x = min(x + 2, fb->width);
-    u32 min_y = min(y - 2, 0);
-    u32 max_y = min(y + 2, fb->height);
+    u32 min_x = min(x - 2u, 0u);
+    u32 max_x = min(x + 2u, fb->width);
+    u32 min_y = min(y - 2u, 0u);
+    u32 max_y = min(y + 2u, fb->height);
 
     float sum = 0.0f;
     u32 count = (max_x - min_x) * (max_y - min_y) - 1;
