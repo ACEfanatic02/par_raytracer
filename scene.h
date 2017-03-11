@@ -20,11 +20,8 @@ enum ObjectType {
 };
 
 struct SceneObject {
-    struct {
-        Sphere sphere;
-        MeshGroup * mesh_group;
-        Mesh * mesh;
-    };
+    MeshGroup * mesh_group;
+    Mesh * mesh;
     ObjectType type;
     Material * material;
 };
