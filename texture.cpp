@@ -134,7 +134,7 @@ ConvertHeightMapToNormalMap(Texture * height_map) {
 
     char filename[1024] = {};
     u32 s = seq++;
-    _snprintf(filename, array_count(filename), "normal_map_%u.png", s);
+    snprintf(filename, array_count(filename), "normal_map_%u.png", s);
     printf("%u\n", s);
     stbi_write_png(filename, result->size_x, result->size_y, result->channels, result->texels, 0);
 

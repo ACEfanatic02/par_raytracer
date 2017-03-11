@@ -305,7 +305,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
             printf("Skipped %d pixels\n", skip_count);
         }
         char buffer[256];
-        _snprintf(buffer, sizeof(buffer), "rt_out_pass%02d.png", pass + 1);
+        snprintf(buffer, sizeof(buffer), "rt_out_pass%02d.png", pass + 1);
         WriteFramebufferImage(fb, buffer);
     }
     free(var_map);
@@ -561,7 +561,7 @@ int main(int argc, char ** argv) {
     float scale = 1.0f / (float)(1 << 16);
 
     s64 total_rays_cast = 0;
-    s64 max_rays_cast = 0;
+    u32 max_rays_cast = 0;
 
     for (u32 y = 0; y < fb.height; ++y) {
         for (u32 x = 0; x < fb.width; ++x) {

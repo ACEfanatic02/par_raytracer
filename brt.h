@@ -31,6 +31,10 @@ typedef intptr_t iptr;
 #define __debugbreak(...) ((void)0)
 #endif
 
+#ifdef _WIN32
+#define snprintf _snprintf
+#endif
+
 #undef assert
 #define assert(e) ASSERT(e)
 #define ASSERT(e) do { if (!(e)) { fprintf(stderr, "[%s:%u] Assert failed: " # e "\n", __FILE__, __LINE__); __debugbreak(); } } while(0)
