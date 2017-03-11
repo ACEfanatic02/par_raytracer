@@ -5,6 +5,10 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
+using std::min;
+using std::max;
+using std::isfinite;
+
 #define Clamp(n, a, b) (min(max(n, a), b))
 #define Lerp(a, b, t) ((a) + ((b) - (a))*(t))
 
