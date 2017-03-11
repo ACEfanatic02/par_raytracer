@@ -312,13 +312,20 @@ ParseMTL(char * filename) {
                         // diffuse texture map
                         material->diffuse_texture = LoadTexture(ReadToken(cur + 2));
                     }
+                    else if (STATIC_STRNCMP("Ks", cur)) {
+                        // specular texture map
+                        material->specular_texture = LoadTexture(ReadToken(cur + 2));
+                    }
                     else if (STATIC_STRNCMP("d", cur)) {
                         // alpha mask texture
                         material->alpha_texture = LoadTexture(ReadToken(cur + 1));
                     }
                     else if (STATIC_STRNCMP("bump", cur)) {
                         // bump map
-                        material->bump_texture = LoadTexture(ReadToken(cur + 4));
+                        Texture * height_texture = LoadTexture(ReadToken(cur + 4));
+                        material->bump_texture = ConvertHeightMapToNormalMap(height_texture);
+                        free(height_texture->texels);
+                        free(height_texture);
                     }
                 }
             } break;

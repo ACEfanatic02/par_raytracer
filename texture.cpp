@@ -93,9 +93,9 @@ WriteNormal(Texture * t, u32 x, u32 y, Vector3 n) {
 
     u32 pixel_idx = y * t->size_x + x;
     // TODO(bryan):  We probably don't *really* want to store normals in sRGB?  
-    t->texels[pixel_idx * 3 + 0] = Color_LinearToSRGB(n.x);
-    t->texels[pixel_idx * 3 + 1] = Color_LinearToSRGB(n.y);
-    t->texels[pixel_idx * 3 + 2] = Color_LinearToSRGB(n.z);
+    t->texels[pixel_idx * 3 + 0] = (u8)(Color_LinearToSRGB(n.x) * 255.0f);
+    t->texels[pixel_idx * 3 + 1] = (u8)(Color_LinearToSRGB(n.y) * 255.0f);
+    t->texels[pixel_idx * 3 + 2] = (u8)(Color_LinearToSRGB(n.z) * 255.0f);
 }
 
 Texture *
@@ -111,18 +111,33 @@ ConvertHeightMapToNormalMap(Texture * height_map) {
 
     for (u32 y = 0; y < result->size_y; ++y) {
         for (u32 x = 0; x < result->size_x; ++x) {
-            float h00 = GetTexel(height_map, x,     y    ).x;
-            float h10 = GetTexel(height_map, x + 1, y    ).x;
-            float h01 = GetTexel(height_map, x,     y + 1).x;
+            u32 x0 = x;
+            u32 x1 = (x + 1) % result->size_x;
+            u32 y0 = y;
+            u32 y1 = (y + 1) % result->size_y;
 
-            Vector3 tx(h10 - h00, 0.0f, 0.0f);
-            Vector3 ty(0.0f, h01 - h00, 0.0f);
+            float h00 = GetTexel(height_map, x0, y0).x;
+            float h10 = GetTexel(height_map, x1, y0).x;
+            float h01 = GetTexel(height_map, x0, y1).x;
+            // Smoothing value
+            float a = 2.5f;
 
-            Vector3 norm = Cross(tx, ty);
+            Vector3 norm = Normalize(Vector3((h01 - h00)*a, (h10 - h00)*a, 1.0f));
 
             WriteNormal(result, x, y, norm);
         }
     }
+
+#if 0
+    static u32 seq = 0;
+
+    char filename[1024] = {};
+    u32 s = seq++;
+    _snprintf(filename, array_count(filename), "normal_map_%u.png", s);
+    printf("%u\n", s);
+    stbi_write_png(filename, result->size_x, result->size_y, result->channels, result->texels, 0);
+
+#endif
 
     return result;
 }
