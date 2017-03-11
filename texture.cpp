@@ -63,8 +63,8 @@ Texture_SampleBilinear(Texture * texture, float u, float v) {
     float sx = (float)(texture->size_x - 2);
     float sy = (float)(texture->size_y - 2);
 
-    float tx = Clamp(u * sx, 0, sx);
-    float ty = Clamp(v * sy, 0, sy);
+    float tx = Clamp(u * sx, 0.0f, sx);
+    float ty = Clamp(v * sy, 0.0f, sy);
 
     u32 tx0 = (u32)floorf(tx);
     u32 ty0 = (u32)floorf(ty);
