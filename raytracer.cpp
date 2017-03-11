@@ -392,30 +392,26 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         Vector4 ambient_color = mat->ambient_color;
         Vector4 diffuse_color = mat->diffuse_color;
         Vector4 specular_color = mat->specular_color;
+        float alpha = mat->alpha;
 
         if (hit.object->type == ObjectType_MeshGroup) {
             Vector3 interp_normal;
             u32 idx = hit.vertex0;
             MeshGroup * mg = hit.object->mesh_group;
             Mesh * mesh = hit.object->mesh;
-            interp_normal += mesh->normals[mg->idx_normals[idx + 0]] * hit.bw.x;
-            interp_normal += mesh->normals[mg->idx_normals[idx + 1]] * hit.bw.y;
-            interp_normal += mesh->normals[mg->idx_normals[idx + 2]] * hit.bw.z;
-            hit_normal = Normalize(interp_normal);
 
             Vector2 uv;
             uv += mesh->texcoords[mg->idx_texcoords[idx + 0]] * hit.bw.x;
             uv += mesh->texcoords[mg->idx_texcoords[idx + 1]] * hit.bw.y;
             uv += mesh->texcoords[mg->idx_texcoords[idx + 2]] * hit.bw.z;
             if (mat->alpha <= 1.0f || mat->alpha_texture) {
-                float alpha = mat->alpha;
                 if (mat->alpha_texture) {
                     alpha *= Texture_SampleBilinear(mat->alpha_texture, uv.x, uv.y).x;
                 }
 
-                if (alpha <= 0.5f) {
-                    // TODO(bryan):  If the pixel is translucent, we want to blend between transparent and opaque.
-                    ray.origin = hit.position + ray.direction;// * gParams.ray_bias * 2.0f;
+                if (alpha <= 0.05f) {
+                    // For really low alpha, treat as a complete miss.
+                    ray.origin = hit.position + ray.direction * gParams.ray_bias * 2.0f;
                     return TraceRayColor(ray, scene, iters);
                 }
             }
@@ -429,11 +425,12 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
                 specular_color = Texture_SampleBilinear(mat->specular_texture, uv.x, uv.y);
             }
 
+            interp_normal += mesh->normals[mg->idx_normals[idx + 0]] * hit.bw.x;
+            interp_normal += mesh->normals[mg->idx_normals[idx + 1]] * hit.bw.y;
+            interp_normal += mesh->normals[mg->idx_normals[idx + 2]] * hit.bw.z;
+            hit_normal = Normalize(interp_normal);
             if (mat->bump_texture) {
                 // Normal mapping.
-                if (idx == 129) {
-                    int break_here = 0;
-                }
                 Vector3 tangent;
                 tangent += mesh->tangents[mg->idx_normals[idx + 0]] * hit.bw.x;
                 tangent += mesh->tangents[mg->idx_normals[idx + 1]] * hit.bw.y;
@@ -494,17 +491,14 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
                 Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1);
                 indirect_light += reflect_color * d;
             }
-            // indirect_light /= gParams.reflection_samples;
 
             for (u32 samp = 0; samp < gParams.spec_samples; ++samp) {
                 float cos_theta = 0.0f;
-                // Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), &cos_theta, DEG2RAD(90.0f));
-                Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), &cos_theta, 1.0f - DEG2RAD(30.0f));
+                Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), &cos_theta, 1.0f - DEG2RAD(15.0f));
                 Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1);
 
                 indirect_specular_light += spec_color;
             }
-            // indirect_specular_light /= gParams.spec_samples;
         }
 
         float object_reflectivity = 0.05f;// TODO
@@ -516,6 +510,13 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         color += (indirect_light + direct_light) * diffuse_color * w_diffuse;
         color += (indirect_specular_light + direct_specular_light) * specular_color * w_reflect;
         
+        if (alpha < 1.0f) {
+            // Translucent, need to sample the continued ray and blend.
+            ray.origin = hit.position + ray.direction * gParams.ray_bias * 2.0f;
+            Vector4 back_color = TraceRayColor(ray, scene, iters - 1);
+            color = color * alpha + back_color * (1.0f - alpha);
+        }
+
         // color /= PI32;
         assert(color.x >= 0.0f);
         assert(color.y >= 0.0f);
