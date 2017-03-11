@@ -1,8 +1,9 @@
 // raytracer.cpp - Simple Raytracer
 // Bryan Taylor 2/18/2017
 #include "brt.h"
-#include <stdlib.h>
-#include <float.h>
+#include <cstdlib>
+#include <cfloat>
+#include <cmath>
 #include "mathlib.h"
 #include "color.h"
 #include "random.h"
