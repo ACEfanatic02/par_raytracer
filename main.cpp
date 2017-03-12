@@ -385,8 +385,8 @@ InitParams(int argc, char ** argv) {
     gParams.camera_fov = 60.0f;
     // gParams.camera_position = Vector3(0.0f, 15.0f, 10.0f);
     // gParams.camera_facing = Normalize(Vector3(0.0f, -0.5f, -1));
-    gParams.camera_position = Vector3(475.0f, 100.0f, 0.0f);
-    gParams.camera_facing = Normalize(Vector3(1.0f, 0.0f, 1.5f));
+    gParams.camera_position = Vector3(475.0f, 250.0f, 0.0f);
+    gParams.camera_facing = Normalize(Vector3(1.25f, -0.5f, 1.25f));
     gParams.image_output_filename = strdup("rt_out.png"); // Need this to be on the heap; might be free'd later.
 
     // TODO(bryan):  INI
