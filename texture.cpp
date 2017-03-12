@@ -57,7 +57,7 @@ Texture_SampleBilinear(Texture * texture, float u, float v) {
         return Vector4();
     }
 
-    u = 1.0f - WrapUV(u);
+    u = WrapUV(u);
     v = 1.0f - WrapUV(v);
 
     float sx = (float)(texture->size_x - 2);

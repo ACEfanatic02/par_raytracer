@@ -270,7 +270,7 @@ GetRandFloat11() {
 }
 
 static Ray
-GetRayInCone(Vector3 origin, Vector3 normal, float * cos_theta, float min_cos) {
+GetRayInCone(Vector3 origin, Vector3 normal, float min_cos) {
     Ray ray;
     ray.origin = origin;
 
@@ -302,13 +302,12 @@ GetRayInCone(Vector3 origin, Vector3 normal, float * cos_theta, float min_cos) {
         ray.direction = Normalize(Matrix33_FromAxisAngle(axis, acosf(d)) * v);
     }
 
-    *cos_theta = ct;
     return ray;
 }
 
 static Ray
-GetDiffuseReflectionRay(Vector3 origin, Vector3 normal, float * cos_theta) {
-    return GetRayInCone(origin, normal, cos_theta, 0.0f);
+GetDiffuseReflectionRay(Vector3 origin, Vector3 normal) {
+    return GetRayInCone(origin, normal, 0.0f);
 }
 
 inline Vector3
@@ -479,11 +478,10 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
         Vector4 indirect_specular_light;
         if (iters > 0) {
             for (u32 samp = 0; samp < gParams.reflection_samples; ++samp) {
-                float cos_theta = 0.0f;
                 Ray reflect_ray;
                 float d;
                 do {
-                    reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal, &cos_theta);
+                    reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal);
                     d = Dot(hit_normal, reflect_ray.direction);
                     // NOTE(bryan):  BUG
                     // It's unclear how we're getting rays that point away from
@@ -494,8 +492,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
             }
 
             for (u32 samp = 0; samp < gParams.spec_samples; ++samp) {
-                float cos_theta = 0.0f;
-                Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), &cos_theta, 1.0f - DEG2RAD(15.0f));
+                Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), 1.0f - DEG2RAD(15.0f));
                 Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
 
                 indirect_specular_light += spec_color;

@@ -245,7 +245,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     DebugCounters debug = {};
     {
         TIME_BLOCK("Render MT");
-        u32 thread_count = 2;//std::thread::hardware_concurrency() - 1;
+        u32 thread_count = 3;//std::thread::hardware_concurrency() - 1;
         DebugCounters * debug_counters = (DebugCounters *)calloc(thread_count, sizeof(DebugCounters));
         std::vector<std::thread> threads;
         for (u32 i = 0; i < thread_count; ++i) {
