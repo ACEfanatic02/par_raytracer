@@ -320,7 +320,7 @@ inline float
 FresnelAmount(float ior_exit, float ior_enter, Vector3 normal, Vector3 incident) {
     float r0 = (ior_exit - ior_enter) / (ior_exit + ior_enter);
     r0 *= r0;
-    float ct = max(0.0f, -Dot(normal, incident));
+    float ct = Max(0.0f, -Dot(normal, incident));
     if (ior_exit > ior_enter) {
         float n = ior_exit / ior_enter;
         float st_sq = n*n*(1.0f - ct*ct);
@@ -355,8 +355,8 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
         case Light_Directional: {
            if (!TraceRay(shadow_ray, scene, NULL)) {
                 float spec_cos = Dot(view_ray.direction * -1.0f, Reflect(light_vector, normal));
-                result.direct_diffuse = light->color * 2.0f * max(0.0f, Dot(normal, light_vector));
-                result.direct_specular = light->color * powf(max(0.0f, spec_cos), specular_intensity);
+                result.direct_diffuse = light->color * 2.0f * Max(0.0f, Dot(normal, light_vector));
+                result.direct_specular = light->color * powf(Max(0.0f, spec_cos), specular_intensity);
            }
         } break;
         case Light_Point: {
@@ -370,8 +370,8 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
                 Vector4 light_color = light->color * (1.0f / (falloff_denom*falloff_denom));
 
                 float spec_cos = Dot(view_ray.direction * -1.0f, Reflect(light_vector, normal));
-                result.direct_diffuse = light_color * 2.0f * max(0.0f, Dot(normal, light_vector));
-                result.direct_specular = light_color * powf(max(0.0f, spec_cos), specular_intensity);
+                result.direct_diffuse = light_color * 2.0f * Max(0.0f, Dot(normal, light_vector));
+                result.direct_specular = light_color * powf(Max(0.0f, spec_cos), specular_intensity);
             }
         } break;
         default: {

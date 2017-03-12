@@ -57,7 +57,7 @@ Color_RGBToHSV(Vector4 rgba) {
         K = (-2.0f / 6.0f) - K;
     }
 
-    float chroma = rgba.x - min(rgba.y, rgba.z);
+    float chroma = rgba.x - Min(rgba.y, rgba.z);
     float h = fabs(K + (rgba.y - rgba.z) / (6.0f * chroma + 1e-20f));
     float s = chroma / (rgba.x + 1e-20f);
     float v = rgba.x;
