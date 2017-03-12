@@ -24,20 +24,23 @@ strndup(const char * s, size_t n) {
 #define STB_IMAGE_IMPLEMENTATION
 #include "lib/stb_image.h"
 
-static u32 current_line;
+struct ParseState {
+    char * cur;
+    u32 current_line;
+};
 
 inline void
-ExpectWhitespace(char * c) {
+ExpectWhitespace(ParseState * state, char * c) {
     if (!isspace(*c)) {
-        fprintf(stderr, "Failed to find whitespace where expected on line %d, got '%c'\n", current_line, *c);
+        fprintf(stderr, "Failed to find whitespace where expected on line %d, got '%c'\n", state->current_line, *c);
         __debugbreak();
     }
 }
 
 inline void
-Expect(char * c, char expect) {
+Expect(ParseState * state, char * c, char expect) {
     if (*c != expect) {
-        fprintf(stderr, "Failed to find '%c' where expected on line %d\n", expect, current_line);
+        fprintf(stderr, "Failed to find '%c' where expected on line %d\n", expect, state->current_line);
         __debugbreak();
     }
 }
@@ -51,60 +54,60 @@ NextToken(char * p) {
 }
 
 inline char *
-NextLine(char * p) {
+NextLine(ParseState * state, char * p) {
     while (*p && *p != '\n') {
         p++;
     }
     if (*p == '\n') {
         p++;
-        current_line++;
+        state->current_line++;
     }
     return p;
 }
 
 inline Vector3
-ReadVector3(char * cur) {
+ReadVector3(ParseState * state, char * cur) {
     Vector3 result;
     char * end;
     cur = NextToken(cur);
     result.x = strtof(cur, &end);
-    ExpectWhitespace(end);
+    ExpectWhitespace(state, end);
     cur = NextToken(end);
     result.y = strtof(cur, &end);
-    ExpectWhitespace(end);
+    ExpectWhitespace(state, end);
     cur = NextToken(end);
     result.z = strtof(cur, &end);
-    ExpectWhitespace(end);
+    ExpectWhitespace(state, end);
 
     return result;
 }
 
 inline Vector2
-ReadVector2(char * cur) {
+ReadVector2(ParseState * state, char * cur) {
     Vector2 result;
     char * end;
     cur = NextToken(cur);
     result.x = strtof(cur, &end);
-    ExpectWhitespace(end);
+    ExpectWhitespace(state, end);
     cur = NextToken(end);
     result.y = strtof(cur, &end);
-    ExpectWhitespace(end);
+    ExpectWhitespace(state, end);
 
     return result;
 }
 
 inline float 
-ReadFloat(char * cur) {
+ReadFloat(ParseState * state, char * cur) {
     char * end;
     cur = NextToken(cur);
     float result = strtof(cur, &end);
-    ExpectWhitespace(end);
+    ExpectWhitespace(state, end);
     return result;
 }
 
 inline Vector4
-ReadColor(char * cur) {
-    Vector3 rgb = ReadVector3(cur);
+ReadColor(ParseState * state, char * cur) {
+    Vector3 rgb = ReadVector3(state, cur);
     return Vector4(rgb.x, rgb.y, rgb.z, 1.0f);
 }
 
@@ -124,17 +127,17 @@ ReadToken(char * cur) {
 }
 
 inline char * 
-ReadFaceTriple(Mesh * mesh, char * cur, u32 * out_pos, u32 * out_tex, u32 * out_norm) {
+ReadFaceTriple(ParseState * state, Mesh * mesh, char * cur, u32 * out_pos, u32 * out_tex, u32 * out_norm) {
     char * end;
     cur = NextToken(cur);
     s32 pos = (s32)strtol(cur, &end, 10);
-    Expect(end, '/');
+    Expect(state, end, '/');
     cur = end + 1;
     s32 tex = (s32)strtol(cur, &end, 10);
-    Expect(end, '/');
+    Expect(state, end, '/');
     cur = end + 1;
     s32 norm = (s32)strtol(cur, &end, 10);
-    ExpectWhitespace(end);
+    ExpectWhitespace(state, end);
 
     if (pos > 0) {
         *out_pos = (u32)(pos - 1);
@@ -159,7 +162,7 @@ ReadFaceTriple(Mesh * mesh, char * cur, u32 * out_pos, u32 * out_tex, u32 * out_
 }
 
 inline void
-ReadFace(Mesh * mesh, MeshGroup * group, char * cur) {
+ReadFace(ParseState * state, Mesh * mesh, MeshGroup * group, char * cur) {
     // We need to read all the indices into a buffer first so that we can
     // triangulate them.  Doing this later is harder; we want to do this
     // as soon in the pipeline as possible.
@@ -170,7 +173,7 @@ ReadFace(Mesh * mesh, MeshGroup * group, char * cur) {
     cur = NextToken(cur);
     while (*cur && *cur != '\n' && *cur != '\r') {
         assert(vertex_count < array_count(pos));
-        cur = ReadFaceTriple(mesh, cur, pos + vertex_count, tex + vertex_count, norm + vertex_count);
+        cur = ReadFaceTriple(state, mesh, cur, pos + vertex_count, tex + vertex_count, norm + vertex_count);
         cur = NextToken(cur);
         vertex_count++;
     }
@@ -232,23 +235,19 @@ ReadEntireFile(char * filename) {
 static MaterialLibrary * 
 ParseMTL(char * filename) {
     printf("MTL library: [%s]\n", filename);
-    // HACK(bryan):  HACK HACK HACK HACK HACK
-    // If we're parsing multiple files interleaved we *really* need to wrap up
-    // the parser state for each of them.
-    u32 stored_current_line = current_line;
-
     char * bytes = ReadEntireFile(filename); 
 
-    current_line = 1;
+    ParseState parse_state = {};
+    parse_state.cur = bytes;
+    parse_state.current_line = 1;
     MaterialLibrary * lib = new MaterialLibrary;
     Material * material = NULL;
-    char * cur = bytes;
-    while (*cur) {
-        cur = NextToken(cur);
-        switch (*cur) {
+    while (*parse_state.cur) {
+        parse_state.cur = NextToken(parse_state.cur);
+        switch (*parse_state.cur) {
             case 'n': {
-                if (STATIC_STRNCMP("newmtl", cur)) {
-                    char * name = ReadToken(cur + 6);
+                if (STATIC_STRNCMP("newmtl", parse_state.cur)) {
+                    char * name = ReadToken(parse_state.cur + 6);
                     printf("Material: [%s]\n", name);
                     if (lib->materials.find(name) != lib->materials.end()) {
                         assert(false);
@@ -260,19 +259,19 @@ ParseMTL(char * filename) {
             } break;
 
             case 'N': {
-                cur++;
-                switch (*cur) {
+                parse_state.cur++;
+                switch (*parse_state.cur) {
                     case 's': {
-                        material->specular_intensity = ReadFloat(cur + 1);
+                        material->specular_intensity = ReadFloat(&parse_state, parse_state.cur + 1);
                     } break;
                     case 'i': {
-                        material->index_of_refraction = ReadFloat(cur + 1);
+                        material->index_of_refraction = ReadFloat(&parse_state, parse_state.cur + 1);
                     } break;
                 }
             } break;
 
             case 'd': {
-                material->alpha = ReadFloat(cur + 1);
+                material->alpha = ReadFloat(&parse_state, parse_state.cur + 1);
             } break;
 
             case 'T': {
@@ -284,45 +283,45 @@ ParseMTL(char * filename) {
             } break;
 
             case 'K': {
-                cur++;
-                switch (*cur) {
+                parse_state.cur++;
+                switch (*parse_state.cur) {
                     case 'a': {
-                        material->ambient_color = ReadColor(cur + 1);
+                        material->ambient_color = ReadColor(&parse_state, parse_state.cur + 1);
                     } break;
                     case 'd': {
-                        material->diffuse_color = ReadColor(cur + 1);
+                        material->diffuse_color = ReadColor(&parse_state, parse_state.cur + 1);
                     } break;
                     case 's': {
-                        material->specular_color = ReadColor(cur + 1);
+                        material->specular_color = ReadColor(&parse_state, parse_state.cur + 1);
                     } break;
                     case 'e': {
-                        material->emissive_color = ReadColor(cur + 1);
+                        material->emissive_color = ReadColor(&parse_state, parse_state.cur + 1);
                     } break;
                 }
             } break;
 
             case 'm': {
-                if (STATIC_STRNCMP("map_", cur)) {
-                    cur += 4;
-                    if (STATIC_STRNCMP("Ka", cur)) {
+                if (STATIC_STRNCMP("map_", parse_state.cur)) {
+                    parse_state.cur += 4;
+                    if (STATIC_STRNCMP("Ka", parse_state.cur)) {
                         // ambient texture map
-                        material->ambient_texture = LoadTexture(ReadToken(cur + 2));
+                        material->ambient_texture = LoadTexture(ReadToken(parse_state.cur + 2));
                     }
-                    else if (STATIC_STRNCMP("Kd", cur)) {
+                    else if (STATIC_STRNCMP("Kd", parse_state.cur)) {
                         // diffuse texture map
-                        material->diffuse_texture = LoadTexture(ReadToken(cur + 2));
+                        material->diffuse_texture = LoadTexture(ReadToken(parse_state.cur + 2));
                     }
-                    else if (STATIC_STRNCMP("Ks", cur)) {
+                    else if (STATIC_STRNCMP("Ks", parse_state.cur)) {
                         // specular texture map
-                        material->specular_texture = LoadTexture(ReadToken(cur + 2));
+                        material->specular_texture = LoadTexture(ReadToken(parse_state.cur + 2));
                     }
-                    else if (STATIC_STRNCMP("d", cur)) {
+                    else if (STATIC_STRNCMP("d", parse_state.cur)) {
                         // alpha mask texture
-                        material->alpha_texture = LoadTexture(ReadToken(cur + 1));
+                        material->alpha_texture = LoadTexture(ReadToken(parse_state.cur + 1));
                     }
-                    else if (STATIC_STRNCMP("bump", cur)) {
+                    else if (STATIC_STRNCMP("bump", parse_state.cur)) {
                         // bump map
-                        Texture * height_texture = LoadTexture(ReadToken(cur + 4));
+                        Texture * height_texture = LoadTexture(ReadToken(parse_state.cur + 4));
                         material->bump_texture = ConvertHeightMapToNormalMap(height_texture);
                         free(height_texture->texels);
                         free(height_texture);
@@ -330,10 +329,9 @@ ParseMTL(char * filename) {
                 }
             } break;
         }
-        cur = NextLine(cur);
+        parse_state.cur = NextLine(&parse_state, parse_state.cur);
     }
 
-    current_line = stored_current_line;
     free(bytes);
     return lib;
 }
@@ -356,66 +354,66 @@ ParseOBJ(char * working_dir, char * filename, Matrix33 transform) {
     }
     char * bytes = ReadEntireFile(filename);
 
-    // Parse file.  Not threadsafe but we don't care here, tbh.
-    current_line = 1;
     Mesh * mesh = new Mesh;
     mesh->material_library = NULL;
     MeshGroup * current_group = NULL;
-    char * cur = bytes;
-    while (*cur) {
+    ParseState parse_state = {};
+    parse_state.cur = bytes;
+    parse_state.current_line = 1;
+    while (*parse_state.cur) {
         // Skip leading whitespace, if any.
-        cur = NextToken(cur);
-        switch (*cur) {
+        parse_state.cur = NextToken(parse_state.cur);
+        switch (*parse_state.cur) {
             case 'v': {
-                cur++;
-                switch (*cur) {
+                parse_state.cur++;
+                switch (*parse_state.cur) {
                     case ' ': {
                         // Vertex position
-                        mesh->positions.push_back(transform * ReadVector3(cur + 1));
+                        mesh->positions.push_back(transform * ReadVector3(&parse_state, parse_state.cur + 1));
                     } break;
                     case 't': {
                         // Vertex texcoord
-                        mesh->texcoords.push_back(ReadVector2(cur + 1));
+                        mesh->texcoords.push_back(ReadVector2(&parse_state, parse_state.cur + 1));
                     } break;
                     case 'n': {
                         // Vertex normal
-                        mesh->normals.push_back(transform * ReadVector3(cur + 1));
+                        mesh->normals.push_back(transform * ReadVector3(&parse_state, parse_state.cur + 1));
                     } break;
                 }
             } break;
 
             case 'f': {
                 if (!current_group) {
-                    fprintf(stderr, "Face declared with no active group, line %d.\n", current_line);
+                    fprintf(stderr, "Face declared with no active group, line %d.\n", parse_state.current_line);
                 }
-                ReadFace(mesh, current_group, cur + 1);
+                ReadFace(&parse_state, mesh, current_group, parse_state.cur + 1);
             } break;
 
             case 'g': {
-                current_group = AddMeshGroup(mesh, ReadToken(cur + 1));
+                current_group = AddMeshGroup(mesh, ReadToken(parse_state.cur + 1));
             } break;
 
             case 'u':
             case 'm': {
-                if (STATIC_STRNCMP("usemtl", cur)) {
+                if (STATIC_STRNCMP("usemtl", parse_state.cur)) {
                     assert(mesh->material_library);
                     if (current_group->material) {
                         // We only support one material per group, so split this group up.
                         current_group = AddMeshGroup(mesh, strdup(current_group->name));
                     }
-                    char * material_name = ReadToken(cur + 6);
+                    char * material_name = ReadToken(parse_state.cur + 6);
                     current_group->material = mesh->material_library->materials[material_name];
                 }
-                else if (STATIC_STRNCMP("mtllib", cur)) {
+                else if (STATIC_STRNCMP("mtllib", parse_state.cur)) {
                     // We only support one material library for the entire mesh.
                     // (I don't think I've seen an OBJ with multiple, so this should be fine?)
                     assert(!mesh->material_library);
-                    mesh->material_library = ParseMTL(ReadToken(cur + 6));
+                    mesh->material_library = ParseMTL(ReadToken(parse_state.cur + 6));
                 }
             } break;
         }
         // Go to the next line (or NUL).
-        cur = NextLine(cur);
+        parse_state.cur = NextLine(&parse_state, parse_state.cur);
     }
 
     free(bytes);

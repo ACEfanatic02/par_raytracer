@@ -24,3 +24,20 @@ Algorithmic changes to investigate:
   - May not work well with a tiled renderer?  Would get incorrect variance at tile edges.
 - Tiled may be a bad choice for load balancing, since complex objects tend to cluster.  Odd/even scanlines (or some variant thereof)?
 
+2017-03-11
+
+- Need to do a code cleanup pass -- cull dead code and fixup file structure.
+- Try to figure out bug with hemisphere sampling.  FP precision?  Degenerate case for transform?
+- Handle transparency in shadow traces.
+- Separate render dispatch more cleanly, will make experimenting with parallelization much easier.
+- Investigate:
+  - Per-primitive bounding volumes
+    - Faster bounding volume hierarchy construction:  top-down SAH?
+  - Adaptive sampling
+    - Sample a pixel, if variance of those samples is above a threshold, split into 4 subpixels and recurse.
+    - Avoids most of the edge cases of local variance reduction, and probably more effective as well. 
+  - Better BRDF -- Blinn-Phong instead of Phong?
+- Need threadsafe debug metrics -- either store the counters in thread-local storage, or pass debug context to all relevant functions.
+- Threadsafe PRNG (need to pass separate contexts for each thread.)
+- External scene definitions?  Load lights and camera info from a text file rather than hardcoded.
+  - Could also allow for animation -- render multiple frames, reproject and reuse some samples between frames a la TXAA?
