@@ -1,8 +1,10 @@
 #pragma once
 
-static u64 gRayCount;
-static u64 gSpheresChecked;
-static u64 gMeshesChecked;
+struct DebugCounters {
+    u64 ray_count;
+    u64 sphere_check_count;
+    u64 mesh_check_count;
+};
 
 struct {
     float ray_bias;

@@ -31,7 +31,6 @@ struct RaycastHit {
 
 static bool 
 IntersectRaySphere(Ray ray, Sphere sphere, RaycastHit * out_hit) {
-    gSpheresChecked++;
     // Adapted from Ericson, Real-Time Collision Detection, pg 178
     Vector3 m = ray.origin - sphere.center;
     // Are we pointing at the sphere?
@@ -126,7 +125,6 @@ IntersectRayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, RaycastHit * out_
 
 static bool
 IntersectRayMesh(Ray ray, SceneObject * obj, RaycastHit * out_hit) {
-    gMeshesChecked++;
     assert(obj->type == ObjectType_MeshGroup);
     MeshGroup * mesh_group = obj->mesh_group;
     Mesh * mesh = obj->mesh;
@@ -158,8 +156,8 @@ IntersectRayMesh(Ray ray, SceneObject * obj, RaycastHit * out_hit) {
 }
 
 static bool
-TraceRay(Ray ray, Scene * scene, RaycastHit * out_hit) {
-    gRayCount++;
+TraceRay(Ray ray, Scene * scene, RaycastHit * out_hit, DebugCounters * debug) {
+    debug->ray_count++;
     // Bias ray
     ray.origin += ray.direction * gParams.ray_bias;
 
@@ -173,6 +171,7 @@ TraceRay(Ray ray, Scene * scene, RaycastHit * out_hit) {
         check_spheres.pop_back();
         BoundingSphere s = scene->hierarchy->spheres[i];
         RaycastHit sphere_test_hit;
+        debug->sphere_check_count++;
         if (IntersectRaySphere(ray, s.s, &sphere_test_hit)) {
             if (sphere_test_hit.t > best_hit.t) {
                 // We've already seen a closer hit, no need to check
@@ -215,6 +214,7 @@ TraceRay(Ray ray, Scene * scene, RaycastHit * out_hit) {
                 {
                     RaycastHit current_hit = { best_hit.t };
                     SceneObject * obj = scene->objects[i];
+                    debug->mesh_check_count++;
                     if (IntersectRayMesh(ray, obj, &current_hit)) {
                         if (current_hit.t < best_hit.t) {
                             best_hit = current_hit;
@@ -347,13 +347,13 @@ struct LightingResult {
 };
 
 static LightingResult
-ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vector3 position, float specular_intensity) {
+ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vector3 position, float specular_intensity, DebugCounters * debug) {
     LightingResult result = {};
     Ray shadow_ray = GetShadowRayForLight(position, light);
     Vector3 light_vector = shadow_ray.direction;
     switch (light->type) {
         case Light_Directional: {
-           if (!TraceRay(shadow_ray, scene, NULL)) {
+           if (!TraceRay(shadow_ray, scene, NULL, debug)) {
                 float spec_cos = Dot(view_ray.direction * -1.0f, Reflect(light_vector, normal));
                 result.direct_diffuse = light->color * 2.0f * Max(0.0f, Dot(normal, light_vector));
                 result.direct_specular = light->color * powf(Max(0.0f, spec_cos), specular_intensity);
@@ -364,7 +364,7 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
             float light_dist_sq = Dot(d, d);
             RaycastHit hit;
             // No hit, *or* nearest hit is beyond the light itself
-            if (!TraceRay(shadow_ray, scene, &hit) || hit.t*hit.t <= light_dist_sq) {
+            if (!TraceRay(shadow_ray, scene, &hit, debug) || hit.t*hit.t <= light_dist_sq) {
                 // Distance attenuation
                 float falloff_denom = (sqrtf(light_dist_sq) / light->falloff) + 1.0f;
                 Vector4 light_color = light->color * (1.0f / (falloff_denom*falloff_denom));
@@ -382,10 +382,10 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
 }
 
 static Vector4
-TraceRayColor(Ray ray, Scene * scene, s32 iters) {
+TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
     Vector4 color = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
     RaycastHit hit;
-    if (TraceRay(ray, scene, &hit)) {
+    if (TraceRay(ray, scene, &hit, debug)) {
         // Shade pixel
         Vector3 hit_p = hit.position + hit.normal * gParams.ray_bias;
         Vector3 hit_normal = hit.normal;
@@ -413,7 +413,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
                 if (alpha <= 0.05f) {
                     // For really low alpha, treat as a complete miss.
                     ray.origin = hit.position + ray.direction * gParams.ray_bias * 2.0f;
-                    return TraceRayColor(ray, scene, iters);
+                    return TraceRayColor(ray, scene, iters, debug);
                 }
             }
             if (mat->ambient_texture) {
@@ -470,7 +470,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         Vector4 direct_light;
         Vector4 direct_specular_light;
         for (u32 i = 0; i < scene->light_count; ++i) {
-            LightingResult light_result = ShadeLight(scene, scene->lights + i, ray, hit_normal, hit_p, mat->specular_intensity);
+            LightingResult light_result = ShadeLight(scene, scene->lights + i, ray, hit_normal, hit_p, mat->specular_intensity, debug);
             direct_light += light_result.direct_diffuse;
             direct_specular_light += light_result.direct_specular;
         }
@@ -489,14 +489,14 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
                     // It's unclear how we're getting rays that point away from
                     // the normal, since we're specifically selecting rays in the hemisphere.
                 } while (d < 0.0f);
-                Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1);
+                Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
                 indirect_light += reflect_color * d;
             }
 
             for (u32 samp = 0; samp < gParams.spec_samples; ++samp) {
                 float cos_theta = 0.0f;
                 Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), &cos_theta, 1.0f - DEG2RAD(15.0f));
-                Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1);
+                Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
 
                 indirect_specular_light += spec_color;
             }
@@ -514,7 +514,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters) {
         if (alpha < 1.0f) {
             // Translucent, need to sample the continued ray and blend.
             ray.origin = hit.position + ray.direction * gParams.ray_bias * 2.0f;
-            Vector4 back_color = TraceRayColor(ray, scene, iters - 1);
+            Vector4 back_color = TraceRayColor(ray, scene, iters - 1, debug);
             color = color * alpha + back_color * (1.0f - alpha);
         }
 

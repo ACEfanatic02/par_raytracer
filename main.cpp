@@ -190,13 +190,13 @@ struct RenderJob {
 };
 
 static void
-RenderTask(RenderJob * job) {
+RenderTask(RenderJob * job, DebugCounters * debug) {
     for (u32 x = 0; x < job->fb->width; ++x) {
         Vector4 color;
         for (u32 s = 0; s < sample_pattern_count; ++s) {
             Vector2 pos = Vector2(x, job->y) + sample_patterns[s];
             Ray ray = MakeCameraRay(job->cam, pos);
-            color += TraceRayColor(ray, job->scene, gParams.bounce_depth);
+            color += TraceRayColor(ray, job->scene, gParams.bounce_depth, debug);
             job->sample_counts[x + job->y * job->fb->width]++;
         }
         color /= sample_pattern_count;
@@ -208,25 +208,20 @@ std::vector<RenderJob> task_list;
 std::atomic<u32> next_task;
 
 static void
-RenderQueueWorker() {
+RenderQueueWorker(DebugCounters * debug) {
     while (next_task < task_list.size()) {
         u32 task_id = next_task++;
 
         RenderJob * j = &task_list[task_id];
         {
             TIME_BLOCK("Render Row");
-            RenderTask(j); 
+            RenderTask(j, debug);
         }
     }
 }
 
 static void
 Render(Camera * cam, Framebuffer * fb, Scene * scene) {
-    // TODO(bryan):  Need thread-local storage for these debug counters if we want
-    // non-garbage values for multithreaded runs.
-    gSpheresChecked = 0;
-    gMeshesChecked = 0;
-
     u32 * sample_counts = (u32 *)calloc(fb->width * fb->height, sizeof(u32));
 
     sample_pattern_count = 8;
@@ -247,18 +242,23 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
         task_list.push_back(job);
     }
 
+    DebugCounters debug = {};
     {
         TIME_BLOCK("Render MT");
         u32 thread_count = 2;//std::thread::hardware_concurrency() - 1;
+        DebugCounters * debug_counters = (DebugCounters *)calloc(thread_count, sizeof(DebugCounters));
         std::vector<std::thread> threads;
         for (u32 i = 0; i < thread_count; ++i) {
-            threads.push_back(std::thread(RenderQueueWorker));
+            threads.push_back(std::thread(RenderQueueWorker, debug_counters + i));
         }
         printf("%u render worker threads started.\n", thread_count);
         // RenderQueueWorker();
 
         for (u32 i = 0; i < thread_count; ++i) {
             threads[i].join();
+            debug.ray_count += debug_counters[i].ray_count;
+            debug.sphere_check_count += debug_counters[i].sphere_check_count;
+            debug.mesh_check_count += debug_counters[i].mesh_check_count;
         }
     }
 
@@ -284,7 +284,6 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
                     continue;
                 }
 
-                gRayCount = 0;
                 Vector4 color = fb->pixels[idx];
 
                 float off_x = GetRandFloat11() * 0.5f;
@@ -292,7 +291,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
                 Vector2 pos = Vector2(x + off_x, y + off_y);
                 Ray ray = MakeCameraRay(cam, pos);
                 u32 sample_count = sample_counts[idx]++;
-                Vector4 sample_color = TraceRayColor(ray, scene, gParams.bounce_depth);
+                Vector4 sample_color = TraceRayColor(ray, scene, gParams.bounce_depth, &debug);
 
                 // Numerically robust incremental average.
                 // http://realtimecollisiondetection.net/blog/?p=48
@@ -300,7 +299,6 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
                       + sample_color / (float)sample_count;
                 
                 WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
-                fb->DEBUG_rays_cast[x + y * fb->width] += gRayCount;
             }
             printf("Skipped %d pixels\n", skip_count);
         }
@@ -311,10 +309,11 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     free(var_map);
 
     u32 pixel_count = fb->height*fb->width;
-    printf("Spheres checked:    %llu\n", gSpheresChecked);
-    printf("   average / pixel: %f\n", (double)gSpheresChecked / pixel_count);
-    printf("Meshes checked:     %llu\n", gMeshesChecked);
-    printf("   average / pixel: %f\n", (double)gMeshesChecked / pixel_count);
+    printf("Rays cast:          %llu\n", debug.ray_count);
+    printf("Spheres checked:    %llu\n", debug.sphere_check_count);
+    printf("   average / pixel: %f\n", (double)debug.sphere_check_count / pixel_count);
+    printf("Meshes checked:     %llu\n", debug.mesh_check_count);
+    printf("   average / pixel: %f\n", (double)debug.mesh_check_count / pixel_count);
 }
 
 static void
@@ -558,43 +557,43 @@ int main(int argc, char ** argv) {
 
     WriteFramebufferImage(&fb, gParams.image_output_filename);
 
-    float scale = 1.0f / (float)(1 << 16);
+    // float scale = 1.0f / (float)(1 << 16);
 
-    s64 total_rays_cast = 0;
-    u32 max_rays_cast = 0;
+    // s64 total_rays_cast = 0;
+    // u32 max_rays_cast = 0;
 
-    for (u32 y = 0; y < fb.height; ++y) {
-        for (u32 x = 0; x < fb.width; ++x) {
-            u32 count = fb.DEBUG_rays_cast[x + y * fb.width];
-            total_rays_cast += count;
-            max_rays_cast = Max(max_rays_cast, count);
-        }
-    }
-    //         float h = (1.0f - (float)(count * scale)) * 240.0f;
-    //         Vector4 hsv(h/360.0f, 1.0f, 5.0f, 1.0f);
-    //         Vector4 rgb = Color_HSVToRGB(hsv);
-
-    //         u32 offset = (y * fb.width + x) * 4;
-    //         Color_Pack(fb.bytes + offset, rgb);
+    // for (u32 y = 0; y < fb.height; ++y) {
+    //     for (u32 x = 0; x < fb.width; ++x) {
+    //         u32 count = fb.DEBUG_rays_cast[x + y * fb.width];
+    //         total_rays_cast += count;
+    //         max_rays_cast = Max(max_rays_cast, count);
     //     }
     // }
+    // //         float h = (1.0f - (float)(count * scale)) * 240.0f;
+    // //         Vector4 hsv(h/360.0f, 1.0f, 5.0f, 1.0f);
+    // //         Vector4 rgb = Color_HSVToRGB(hsv);
 
-    double total_pixels = (double)(fb.height*fb.width);
-    double mean = (double)total_rays_cast / total_pixels;
-    double variance = 0.0;
-    for (u32 i = 0; i < fb.height * fb.width; ++i) {
-        u32 count = fb.DEBUG_rays_cast[i];
-        double delta = (double)count - mean;
-        variance += delta*delta;
-    }
-    variance /= total_pixels;
-    double std_dev = sqrt(variance);
+    // //         u32 offset = (y * fb.width + x) * 4;
+    // //         Color_Pack(fb.bytes + offset, rgb);
+    // //     }
+    // // }
 
-    printf("Total rays cast: %lld\n", total_rays_cast);
-    printf("Max rays cast:   %lld\n", max_rays_cast);
-    printf("Mean:            %8.8f\n", mean);
-    printf("Variance:        %8.8f\n", variance);
-    printf("Std. Dev:        %8.8f\n", std_dev);
+    // double total_pixels = (double)(fb.height*fb.width);
+    // double mean = (double)total_rays_cast / total_pixels;
+    // double variance = 0.0;
+    // for (u32 i = 0; i < fb.height * fb.width; ++i) {
+    //     u32 count = fb.DEBUG_rays_cast[i];
+    //     double delta = (double)count - mean;
+    //     variance += delta*delta;
+    // }
+    // variance /= total_pixels;
+    // double std_dev = sqrt(variance);
+
+    // printf("Total rays cast: %lld\n", total_rays_cast);
+    // printf("Max rays cast:   %lld\n", max_rays_cast);
+    // printf("Mean:            %8.8f\n", mean);
+    // printf("Variance:        %8.8f\n", variance);
+    // printf("Std. Dev:        %8.8f\n", std_dev);
 
     // stbi_write_png("rt_rays_out.png", fb.width, fb.height, 4, fb.bytes, 0);
 
