@@ -103,7 +103,7 @@ SymSchur2(Matrix33 m, u32 p, u32 q, float * out_c, float * out_s) {
 
 static void
 Jacobi(Matrix33 * a, Matrix33 * v) {
-    float prevoff;
+    float prevoff = 0.0f;
     float c, s;
     Matrix33 J, b, t;
 
@@ -175,8 +175,8 @@ EigenSphere(Vector3 * points, u32 point_count) {
     e.y = v(1, max_c);
     e.z = v(2, max_c);
 
-    u32 idx_min;
-    u32 idx_max;
+    u32 idx_min = 0;
+    u32 idx_max = 0;
     FindExtremePointsAlongDirection(e, points, point_count, &idx_min, &idx_max);
     Vector3 min_pt = points[idx_min];
     Vector3 max_pt = points[idx_max];

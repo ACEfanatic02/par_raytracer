@@ -19,8 +19,8 @@ Timer_Stop(Timer * timer) {
 
 struct ScopeTimer {
     Timer _t;
-    char * _label;
-    ScopeTimer(char * l) : 
+    const char * _label;
+    ScopeTimer(const char * l) : 
         _label(l) { 
         Timer_Start(&_t); 
     }
