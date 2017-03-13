@@ -54,7 +54,8 @@ IntersectRaySphere(Ray ray, Sphere sphere, RaycastHit * out_hit) {
     Vector3 p = ray.origin + ray.direction * t;
     out_hit->t = t;
     out_hit->position = p;
-    out_hit->normal = Normalize(p - sphere.center);
+    // We never actually render spheres any more, so we don't need to compute the normal.
+//    out_hit->normal = Normalize(p - sphere.center);
     return true;
 }
 
@@ -220,7 +221,7 @@ TraceRay(Ray ray, Scene * scene, RaycastHit * out_hit, DebugCounters * debug) {
                             best_hit = current_hit;
                             hit = true;
                         }
-                    }                    
+                    }
                 }
             }
         }
@@ -383,6 +384,10 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
 static Vector4
 TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
     Vector4 color = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
+    if (iters < 0) {
+        return color;
+    }
+
     RaycastHit hit;
     if (TraceRay(ray, scene, &hit, debug)) {
         // Shade pixel

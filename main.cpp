@@ -133,13 +133,14 @@ CalculateLocalVariance(Framebuffer *fb, u32 x, u32 y) {
     u32 max_y = Min(y + 2, fb->height);
 
     float sum = 0.0f;
-    u32 count = (max_x - min_x) * (max_y - min_y) - 1;
+    u32 count = (max_x - min_x) * (max_y - min_y);
     Vector4 mean;
     for (u32 yy = min_y; yy <= max_y; ++yy) {
         for (u32 xx = min_x; xx <= max_x; ++xx) {
             mean += fb->pixels[yy*fb->width + xx];
         }
     }
+    mean /= (float)count;
 
     for (u32 yy = min_y; yy <= max_y; ++yy) {
         for (u32 xx = min_x; xx <= max_x; ++xx) {
@@ -267,9 +268,11 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     printf("Start variance reduction\n");
     u32 max_variance_reduction_passes = 8;
 
+    float min_var = FLT_MAX;
+    float max_var = -FLT_MAX;
     float * var_map = (float *)calloc(fb->width * fb->height, sizeof(float));
     for (u32 pass = 0; pass < max_variance_reduction_passes; ++pass) {
-        const float variance_threshold = 3.0f;
+        const float variance_threshold = 1.0f;
         {
             TIME_BLOCK("Variance Map");
             MakeVarianceMap(fb, var_map);
@@ -279,6 +282,10 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
             u32 skip_count = 0;
             for (u32 x = 0; x < fb->width; ++x) {
                 u32 idx = y * fb->width + x;
+
+                min_var = Min(min_var, var_map[idx]);
+                max_var = Max(max_var, var_map[idx]);
+
                 if (var_map[idx] < variance_threshold) {
                     skip_count++;
                     continue;
@@ -286,22 +293,26 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
 
                 Vector4 color = fb->pixels[idx];
 
-                float off_x = GetRandFloat11() * 0.5f;
-                float off_y = GetRandFloat11() * 0.5f;
-                Vector2 pos = Vector2(x + off_x, y + off_y);
-                Ray ray = MakeCameraRay(cam, pos);
-                u32 sample_count = sample_counts[idx]++;
-                Vector4 sample_color = TraceRayColor(ray, scene, gParams.bounce_depth, &debug);
+                for (u32 i = 0; i < sample_pattern_count; ++i) {
+                    float off_x = GetRandFloat11() * 0.5f;
+                    float off_y = GetRandFloat11() * 0.5f;
+                    Vector2 pos = Vector2(x + off_x, y + off_y);
+                    Ray ray = MakeCameraRay(cam, pos);
+                    u32 sample_count = sample_counts[idx]++;
+                    Vector4 sample_color = TraceRayColor(ray, scene, gParams.bounce_depth, &debug);
 
-                // Numerically robust incremental average.
-                // http://realtimecollisiondetection.net/blog/?p=48
-                color = color * ((float)sample_count / (sample_count + 1)) 
-                      + sample_color / (float)sample_count;
+                    // Numerically robust incremental average.
+                    // http://realtimecollisiondetection.net/blog/?p=48
+                    color = color * ((float)sample_count / (sample_count + 1)) 
+                          + sample_color / (float)sample_count;
+                }
                 
                 WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
             }
             printf("Skipped %d pixels\n", skip_count);
         }
+        printf("Variance min: %f  max: %f\n", min_var, max_var);
+
         char buffer[256];
         snprintf(buffer, sizeof(buffer), "rt_out_pass%02d.png", pass + 1);
         WriteFramebufferImage(fb, buffer);
@@ -381,7 +392,7 @@ InitParams(int argc, char ** argv) {
     gParams.reflection_samples = 1;
     gParams.spec_samples = 1;
     gParams.bounce_depth = 2;
-    gParams.background_color = Vector4(0.0f, 0.3f, 0.5f, 1.0f);
+    gParams.background_color = Vector4(0.1275f, 0.8913f, 1.0f, 1.0f)*1.5f; // Sky color, serves as an area light if all rays miss.
     gParams.camera_fov = 60.0f;
     // gParams.camera_position = Vector3(0.0f, 15.0f, 10.0f);
     // gParams.camera_facing = Normalize(Vector3(0.0f, -0.5f, -1));
@@ -462,7 +473,7 @@ InitScene() {
     LightSource * lights = (LightSource *)calloc(3, sizeof(LightSource));
     lights[0].type = Light_Directional;
     lights[0].color = Vector4(0.9f, 1.0f, 0.95f, 1.0f) * 4.0f;
-    lights[0].facing = Normalize(Vector3(1.0f, -1.5f, 0.15f));
+    lights[0].facing = Normalize(Vector3(1.0f, -1.5f, 0.25f));
 
     lights[1].type = Light_Directional;
     lights[1].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f) * 1.0f;
@@ -493,8 +504,8 @@ int main(int argc, char ** argv) {
     Framebuffer fb;
     // fb.width = 640;
     // fb.height = 480;
-    fb.width = 128*2;
-    fb.height = 96*2;
+    fb.width = 128;
+    fb.height = 96;
     // fb.width  = 64;
     // fb.height = 48;
     fb.pixels = (Vector4 *)calloc(fb.width * fb.height, sizeof(Vector4));
@@ -534,8 +545,6 @@ int main(int argc, char ** argv) {
     u32 total_tris = 0;
     Scene scene = InitScene();
     scene.hierarchy = &hierarchy;
-    // TODO(bryan):  We need to actually load materials.  In the meantime, give everything a default
-    // so that we can just test the loading / mesh tracing.
     scene.default_mat = MakeMaterial(Vector4(0.75f, 0.5f, 0.75f, 1.0f));
     for (u32 i = 0; i < hierarchy.mesh_groups.size(); ++i) {
         MeshGroup * mg = hierarchy.mesh_groups[i];
@@ -547,6 +556,12 @@ int main(int argc, char ** argv) {
         if (mg) {
             total_tris += mg->idx_positions.size() / 3;
             if (mg->material) obj->material = mg->material;
+            // printf("MeshGroup '%s', material '%s' position: { %f, %f, %f }\n", 
+            //         mg->name,
+            //         mg->material ? mg->material->name : "None",
+            //         hierarchy.spheres[i].s.center.x,
+            //         hierarchy.spheres[i].s.center.y,
+            //         hierarchy.spheres[i].s.center.z);
         }
 
         scene.objects.push_back(obj);
