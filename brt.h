@@ -38,7 +38,7 @@ typedef intptr_t iptr;
 #undef assert
 #define assert(e) ASSERT(e)
 #define Assert(e, ...) ASSERT(e)
-#define ASSERT(e) do { if (!(e)) { fprintf(stderr, "[%s:%u] Assert failed: " # e "\n", __FILE__, __LINE__); __debugbreak(); } } while(0)
+#define ASSERT(e) do { if (!(e)) { fprintf(stderr, "[%s:%u] Assert failed: %s\n", __FILE__, __LINE__, # e); __debugbreak(); } } while(0)
 
 
 #define array_count(a) (sizeof((a)) / sizeof((a)[0]))
