@@ -1,6 +1,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "lib/stb_image_write.h"
 
+#include <mpi.h>
+
 #include "raytracer.cpp"
 
 struct Framebuffer {
@@ -9,6 +11,38 @@ struct Framebuffer {
     u32 height;
     u32 * DEBUG_rays_cast;
 };
+
+static s32 gMPI_CommSize;
+static s32 gMPI_CommRank;
+
+static void
+ReduceImageMPI(Framebuffer * fb) {
+    u32 total_pixel_count = fb->width * fb->height;
+    Vector4 * recv_buffer = (Vector4 *)calloc(total_pixel_count, sizeof(Vector4));
+
+    // Each rank processes individual rows in a cycle, so we need multiple gathers to
+    // collect all the data.
+    //
+    // We use an Allgather so that each rank ends up with the complete framebuffer; this
+    // will be used to calculate pixel variance between passes.
+
+    u32 cycle_count = (fb->height + gMPI_CommSize - 1) / gMPI_CommSize;
+    for (u32 cycle = 0; cycle < cycle_count; ++cycle) {
+        u32 row = cycle * gMPI_CommSize + gMPI_CommRank;
+        // Final cycle may not be complete.
+        // e.g, 5 rows over 4 processes.
+        if (row < fb->height) {
+            Vector4 * recv_pointer = recv + (fb->width * row);
+            Vector4 * send_pointer = fb->pixels + (fb->width * row);
+            MPI_Allgather(send_pointer, fb->width * 4, MPI_FLOAT,
+                          recv_pointer, fb->width * 4, MPI_FLOAT,
+                          MPI_COMM_WORLD);
+        }
+    }
+
+    free(fb->pixels);
+    fb->pixels = recv_buffer;
+}
 
 static void
 WriteColor(Framebuffer * fb, u32 x, u32 y, float r, float g, float b, float a) {
@@ -44,6 +78,10 @@ LogAverageLuma(Framebuffer * fb) {
 
 static void
 WriteFramebufferImage(Framebuffer * fb, char * filename) {
+    if (gMPI_CommRank != 0) {
+        return;
+    }
+
     float scene_luma = LogAverageLuma(fb);
     u8 * buffer = (u8 *)calloc(fb->width * fb->height, 4);
     printf("scene_luma = %f\n", scene_luma);
@@ -233,26 +271,28 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     }
 
     for (u32 y = 0; y < fb->height; ++y) {
-        RenderJob job;
-        job.cam = cam;
-        job.scene = scene;
-        job.fb = fb;
-        job.sample_counts = sample_counts;
-        job.y = y;
+        if (y % gMPI_CommRank == 0) {
+            RenderJob job;
+            job.cam = cam;
+            job.scene = scene;
+            job.fb = fb;
+            job.sample_counts = sample_counts;
+            job.y = y;
 
-        task_list.push_back(job);
+            task_list.push_back(job);
+        }
     }
 
     DebugCounters debug = {};
     {
         TIME_BLOCK("Render MT");
-        u32 thread_count = 3;//std::thread::hardware_concurrency() - 1;
+        u32 thread_count = std::thread::hardware_concurrency() - 1;
         DebugCounters * debug_counters = (DebugCounters *)calloc(thread_count, sizeof(DebugCounters));
         std::vector<std::thread> threads;
         for (u32 i = 0; i < thread_count; ++i) {
             threads.push_back(std::thread(RenderQueueWorker, debug_counters + i));
         }
-        printf("%u render worker threads started.\n", thread_count);
+        // printf("%u render worker threads started.\n", thread_count);
         // RenderQueueWorker();
 
         for (u32 i = 0; i < thread_count; ++i) {
@@ -263,6 +303,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
         }
     }
 
+    ReduceImageMPI(fb);
     WriteFramebufferImage(fb, "rt_out_beforevar.png");
 
     printf("Start variance reduction\n");
@@ -309,9 +350,9 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
                 
                 WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
             }
-            printf("Skipped %d pixels\n", skip_count);
+            // printf("Skipped %d pixels\n", skip_count);
         }
-        printf("Variance min: %f  max: %f\n", min_var, max_var);
+        // printf("Variance min: %f  max: %f\n", min_var, max_var);
 
         char buffer[256];
         snprintf(buffer, sizeof(buffer), "rt_out_pass%02d.png", pass + 1);
@@ -320,6 +361,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     free(var_map);
 
     u32 pixel_count = fb->height*fb->width;
+    printf("Process %d", gMPI_CommRank);
     printf("Rays cast:          %llu\n", debug.ray_count);
     printf("Spheres checked:    %llu\n", debug.sphere_check_count);
     printf("   average / pixel: %f\n", (double)debug.sphere_check_count / pixel_count);
@@ -479,18 +521,6 @@ InitScene() {
     lights[1].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f) * 1.0f;
     lights[1].facing = Normalize(Vector3(0.0f, -1.0f, 0.0f));
 
-    // lights[0].type = Light_Directional;
-    // lights[0].color = Vector4(1, 1, 1, 1) * 4.0f;
-    // lights[0].facing = Vector3(0, -1, 0);
-
-    // lights[1].type = Light_Directional;
-    // lights[1].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    // lights[1].facing = Normalize(Vector3(1.0f, -1.0f, 0.0f));
-
-    // lights[2].type = Light_Point;
-    // lights[2].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    // lights[2].position = Vector3(500.0f, 250.0f, 0.0f);
-
     Scene scene;
     scene.lights = lights;
     scene.light_count = 1;
@@ -499,6 +529,11 @@ InitScene() {
 }
 
 int main(int argc, char ** argv) {
+    MPI_Init(&argc, &argv);
+
+    MPI_Comm_size(MPI_COMM_WORLD, &gMPI_CommSize);
+    MPI_Comm_rank(MPI_COMM_WORLD, &gMPI_CommRank);
+
     InitParams(argc, argv);
 
     Framebuffer fb;
@@ -517,9 +552,16 @@ int main(int argc, char ** argv) {
     Matrix33 transform;
     transform.SetIdentity();
     {
+        // TODO(bryan):  HACK.  Should be handled by the parameter system.
+#ifdef _WIN32
+        #define DATA_DIR "D:/Users/Bryan/Desktop/meshes/crytek-sponza/"
+#else
+        #define DATA_DIR "/scratch/taylorbr/data/crytek-sponza/"
+#endif 
+
         TIME_BLOCK("Load Mesh");
         // mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/san-miguel/sanMiguel/sanMiguel.obj", transform);
-        mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/crytek-sponza/", "sponza.obj", transform);
+        mesh = ParseOBJ(DATA_DIR, "sponza.obj", transform);
     }
     {
         TIME_BLOCK("Calculate Tangents");
@@ -572,45 +614,7 @@ int main(int argc, char ** argv) {
 
     WriteFramebufferImage(&fb, gParams.image_output_filename);
 
-    // float scale = 1.0f / (float)(1 << 16);
-
-    // s64 total_rays_cast = 0;
-    // u32 max_rays_cast = 0;
-
-    // for (u32 y = 0; y < fb.height; ++y) {
-    //     for (u32 x = 0; x < fb.width; ++x) {
-    //         u32 count = fb.DEBUG_rays_cast[x + y * fb.width];
-    //         total_rays_cast += count;
-    //         max_rays_cast = Max(max_rays_cast, count);
-    //     }
-    // }
-    // //         float h = (1.0f - (float)(count * scale)) * 240.0f;
-    // //         Vector4 hsv(h/360.0f, 1.0f, 5.0f, 1.0f);
-    // //         Vector4 rgb = Color_HSVToRGB(hsv);
-
-    // //         u32 offset = (y * fb.width + x) * 4;
-    // //         Color_Pack(fb.bytes + offset, rgb);
-    // //     }
-    // // }
-
-    // double total_pixels = (double)(fb.height*fb.width);
-    // double mean = (double)total_rays_cast / total_pixels;
-    // double variance = 0.0;
-    // for (u32 i = 0; i < fb.height * fb.width; ++i) {
-    //     u32 count = fb.DEBUG_rays_cast[i];
-    //     double delta = (double)count - mean;
-    //     variance += delta*delta;
-    // }
-    // variance /= total_pixels;
-    // double std_dev = sqrt(variance);
-
-    // printf("Total rays cast: %lld\n", total_rays_cast);
-    // printf("Max rays cast:   %lld\n", max_rays_cast);
-    // printf("Mean:            %8.8f\n", mean);
-    // printf("Variance:        %8.8f\n", variance);
-    // printf("Std. Dev:        %8.8f\n", std_dev);
-
-    // stbi_write_png("rt_rays_out.png", fb.width, fb.height, 4, fb.bytes, 0);
+    MPI_Finalize();
 
     return 0;
 }
