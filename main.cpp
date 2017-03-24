@@ -265,7 +265,7 @@ static void
 Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     u32 * sample_counts = (u32 *)calloc(fb->width * fb->height, sizeof(u32));
 
-    sample_pattern_count = 32;
+    sample_pattern_count = 16;
     sample_patterns = (Vector2 *)calloc(sample_pattern_count, sizeof(Vector2));
     for (u32 i = 0; i < sample_pattern_count; ++i) {
         sample_patterns[i].x = GetRandFloat11() * 0.5f;
@@ -287,7 +287,8 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
 
     DebugCounters debug = {};
     {
-        TIME_BLOCK("Render MT");
+        MPI_Barrier(MPI_COMM_WORLD);
+        TIME_BLOCK("Render, Initial Pass");
         //u32 thread_count = std::thread::hardware_concurrency() - 1;
         //DebugCounters * debug_counters = (DebugCounters *)calloc(thread_count, sizeof(DebugCounters));
         //std::vector<std::thread> threads;
@@ -303,6 +304,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
         //    debug.sphere_check_count += debug_counters[i].sphere_check_count;
         //    debug.mesh_check_count += debug_counters[i].mesh_check_count;
         //}
+        MPI_Barrier(MPI_COMM_WORLD);
     }
 
     ReduceImageMPI(fb);
@@ -543,8 +545,8 @@ int main(int argc, char ** argv) {
     InitParams(argc, argv);
 
     Framebuffer fb;
-    // fb.width = 640;
-    // fb.height = 480;
+    //fb.width = 640;
+    //fb.height = 480;
     fb.width = 128*2;
     fb.height = 96*2;
     // fb.width  = 64;

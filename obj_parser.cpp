@@ -203,7 +203,7 @@ LoadTexture(char * filename) {
         return NULL;
     }
 
-    fprintf(stderr, "Loaded image [%s]:  (x=%d y=%d c=%d)\n", filename, x, y, channels);
+    //fprintf(stderr, "Loaded image [%s]:  (x=%d y=%d c=%d)\n", filename, x, y, channels);
 
     Texture * result = (Texture *)calloc(1, sizeof(Texture));
     result->size_x = x;
@@ -234,7 +234,7 @@ ReadEntireFile(char * filename) {
 
 static MaterialLibrary * 
 ParseMTL(char * filename) {
-    fprintf(stderr, "MTL library: [%s]\n", filename);
+    //fprintf(stderr, "MTL library: [%s]\n", filename);
     char * bytes = ReadEntireFile(filename); 
 
     ParseState parse_state = {};
@@ -248,7 +248,7 @@ ParseMTL(char * filename) {
             case 'n': {
                 if (STATIC_STRNCMP("newmtl", parse_state.cur)) {
                     char * name = ReadToken(parse_state.cur + 6);
-                    fprintf(stderr, "Material: [%s]\n", name);
+                    //fprintf(stderr, "Material: [%s]\n", name);
                     if (lib->materials.find(name) != lib->materials.end()) {
                         assert(false);
                     }
@@ -349,6 +349,7 @@ static Mesh *
 ParseOBJ(char * working_dir, char * filename, Matrix33 transform) {
     // TODO(bryan):  Harden this function and give the entire parser
     // some proper error handling.
+    char * prev_dir = getcwd(NULL, 0);
     if (chdir(working_dir)) {
         return NULL;
     }
@@ -415,7 +416,11 @@ ParseOBJ(char * working_dir, char * filename, Matrix33 transform) {
         // Go to the next line (or NUL).
         parse_state.cur = NextLine(&parse_state, parse_state.cur);
     }
-
+    
+    if (prev_dir) {
+        chdir(prev_dir);
+        free(prev_dir);
+    }
     free(bytes);
     return mesh;
 }
