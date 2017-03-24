@@ -43,7 +43,7 @@ struct ScopeTimer {
     
     ~ScopeTimer() {
         double elapsed = Timer_Stop(&_t);
-        printf("[%s] :: %.2f s\n", _label, elapsed);
+        fprintf(stderr, "[%s] :: %.2f s\n", _label, elapsed);
     }
 };
 

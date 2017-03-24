@@ -32,7 +32,7 @@ ReduceImageMPI(Framebuffer * fb) {
         // Final cycle may not be complete.
         // e.g, 5 rows over 4 processes.
         if (row < fb->height) {
-            Vector4 * recv_pointer = recv + (fb->width * row);
+            Vector4 * recv_pointer = recv_buffer + (fb->width * row);
             Vector4 * send_pointer = fb->pixels + (fb->width * row);
             MPI_Allgather(send_pointer, fb->width * 4, MPI_FLOAT,
                           recv_pointer, fb->width * 4, MPI_FLOAT,
@@ -202,8 +202,8 @@ MakeVarianceMap(Framebuffer *fb, float * out_var) {
     }
 }
 
-#include <thread>
-#include <atomic>
+//#include <thread>
+//#include <atomic>
 
 Vector2 SSAA_Offsets[] = {
 #if 1
@@ -244,7 +244,8 @@ RenderTask(RenderJob * job, DebugCounters * debug) {
 }
 
 std::vector<RenderJob> task_list;
-std::atomic<u32> next_task;
+//std::atomic<u32> next_task;
+u32 next_task;
 
 static void
 RenderQueueWorker(DebugCounters * debug) {
@@ -271,7 +272,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     }
 
     for (u32 y = 0; y < fb->height; ++y) {
-        if (y % gMPI_CommRank == 0) {
+        if (y % gMPI_CommSize == gMPI_CommRank) {
             RenderJob job;
             job.cam = cam;
             job.scene = scene;
@@ -286,21 +287,21 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     DebugCounters debug = {};
     {
         TIME_BLOCK("Render MT");
-        u32 thread_count = std::thread::hardware_concurrency() - 1;
-        DebugCounters * debug_counters = (DebugCounters *)calloc(thread_count, sizeof(DebugCounters));
-        std::vector<std::thread> threads;
-        for (u32 i = 0; i < thread_count; ++i) {
-            threads.push_back(std::thread(RenderQueueWorker, debug_counters + i));
-        }
+        //u32 thread_count = std::thread::hardware_concurrency() - 1;
+        //DebugCounters * debug_counters = (DebugCounters *)calloc(thread_count, sizeof(DebugCounters));
+        //std::vector<std::thread> threads;
+        //for (u32 i = 0; i < thread_count; ++i) {
+        //    threads.push_back(std::thread(RenderQueueWorker, debug_counters + i));
+        //}
         // printf("%u render worker threads started.\n", thread_count);
-        // RenderQueueWorker();
+        RenderQueueWorker(&debug);
 
-        for (u32 i = 0; i < thread_count; ++i) {
-            threads[i].join();
-            debug.ray_count += debug_counters[i].ray_count;
-            debug.sphere_check_count += debug_counters[i].sphere_check_count;
-            debug.mesh_check_count += debug_counters[i].mesh_check_count;
-        }
+        //for (u32 i = 0; i < thread_count; ++i) {
+        //    threads[i].join();
+        //    debug.ray_count += debug_counters[i].ray_count;
+        //    debug.sphere_check_count += debug_counters[i].sphere_check_count;
+        //    debug.mesh_check_count += debug_counters[i].mesh_check_count;
+        //}
     }
 
     ReduceImageMPI(fb);
@@ -529,8 +530,9 @@ InitScene() {
 }
 
 int main(int argc, char ** argv) {
+    fprintf(stderr, "MPI_Init\n");
     MPI_Init(&argc, &argv);
-
+    fprintf(stderr, "Getting MPI params.\n");
     MPI_Comm_size(MPI_COMM_WORLD, &gMPI_CommSize);
     MPI_Comm_rank(MPI_COMM_WORLD, &gMPI_CommRank);
 

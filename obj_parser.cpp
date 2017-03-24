@@ -199,11 +199,11 @@ LoadTexture(char * filename) {
     s32 x, y, channels;
     u8 * bytes = stbi_load(filename, &x, &y, &channels, 0);
     if (!bytes) {
-        printf("Failed to load image [%s] :: %s\n", filename, stbi_failure_reason());
+        fprintf(stderr, "Failed to load image [%s] :: %s\n", filename, stbi_failure_reason());
         return NULL;
     }
 
-    printf("Loaded image [%s]:  (x=%d y=%d c=%d)\n", filename, x, y, channels);
+    fprintf(stderr, "Loaded image [%s]:  (x=%d y=%d c=%d)\n", filename, x, y, channels);
 
     Texture * result = (Texture *)calloc(1, sizeof(Texture));
     result->size_x = x;
@@ -234,7 +234,7 @@ ReadEntireFile(char * filename) {
 
 static MaterialLibrary * 
 ParseMTL(char * filename) {
-    printf("MTL library: [%s]\n", filename);
+    fprintf(stderr, "MTL library: [%s]\n", filename);
     char * bytes = ReadEntireFile(filename); 
 
     ParseState parse_state = {};
@@ -248,7 +248,7 @@ ParseMTL(char * filename) {
             case 'n': {
                 if (STATIC_STRNCMP("newmtl", parse_state.cur)) {
                     char * name = ReadToken(parse_state.cur + 6);
-                    printf("Material: [%s]\n", name);
+                    fprintf(stderr, "Material: [%s]\n", name);
                     if (lib->materials.find(name) != lib->materials.end()) {
                         assert(false);
                     }
