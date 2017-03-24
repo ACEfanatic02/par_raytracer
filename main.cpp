@@ -28,18 +28,19 @@ ReduceImageMPI(Framebuffer * fb) {
 
     u32 cycle_count = (fb->height + gMPI_CommSize - 1) / gMPI_CommSize;
     for (u32 cycle = 0; cycle < cycle_count; ++cycle) {
-        u32 row = cycle * gMPI_CommSize + gMPI_CommRank;
+        u32 row = cycle * gMPI_CommSize;
         // Final cycle may not be complete.
         // e.g, 5 rows over 4 processes.
-        if (row < fb->height) {
+        if (row + gMPI_CommRank < fb->height) {
             Vector4 * recv_pointer = recv_buffer + (fb->width * row);
-            Vector4 * send_pointer = fb->pixels + (fb->width * row);
+            Vector4 * send_pointer = fb->pixels + (fb->width * (row + gMPI_CommRank));
             MPI_Allgather(send_pointer, fb->width * 4, MPI_FLOAT,
                           recv_pointer, fb->width * 4, MPI_FLOAT,
                           MPI_COMM_WORLD);
         }
     }
 
+    MPI_Barrier(MPI_COMM_WORLD);
     free(fb->pixels);
     fb->pixels = recv_buffer;
 }
@@ -159,8 +160,8 @@ Color_Distance(Vector4 a, Vector4 b) {
     // Manhattan distance to properly identify differences in hue as well.
     return fabsf(a.x - b.x)
          + fabsf(a.y - b.y)
-         + fabsf(a.z - b.z)
-         + fabsf(a.w - b.w);
+         + fabsf(a.z - b.z);
+         //+ fabsf(a.w - b.w);
 }
 
 static float
@@ -264,7 +265,7 @@ static void
 Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     u32 * sample_counts = (u32 *)calloc(fb->width * fb->height, sizeof(u32));
 
-    sample_pattern_count = 8;
+    sample_pattern_count = 32;
     sample_patterns = (Vector2 *)calloc(sample_pattern_count, sizeof(Vector2));
     for (u32 i = 0; i < sample_pattern_count; ++i) {
         sample_patterns[i].x = GetRandFloat11() * 0.5f;
@@ -308,7 +309,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     WriteFramebufferImage(fb, "rt_out_beforevar.png");
 
     printf("Start variance reduction\n");
-    u32 max_variance_reduction_passes = 8;
+    u32 max_variance_reduction_passes = 2;
 
     float min_var = FLT_MAX;
     float max_var = -FLT_MAX;
@@ -320,6 +321,9 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
             MakeVarianceMap(fb, var_map);
         }
         for (u32 y = 0; y < fb->height; ++y) {
+            if (y % gMPI_CommSize != gMPI_CommRank) {
+                continue;  // HACK, this entire loop needs serious cleanup.
+            }
             TIME_BLOCK("Render Row");
             u32 skip_count = 0;
             for (u32 x = 0; x < fb->width; ++x) {
@@ -362,7 +366,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     free(var_map);
 
     u32 pixel_count = fb->height*fb->width;
-    printf("Process %d", gMPI_CommRank);
+    printf("Process %d\n", gMPI_CommRank);
     printf("Rays cast:          %llu\n", debug.ray_count);
     printf("Spheres checked:    %llu\n", debug.sphere_check_count);
     printf("   average / pixel: %f\n", (double)debug.sphere_check_count / pixel_count);
@@ -541,8 +545,8 @@ int main(int argc, char ** argv) {
     Framebuffer fb;
     // fb.width = 640;
     // fb.height = 480;
-    fb.width = 128;
-    fb.height = 96;
+    fb.width = 128*2;
+    fb.height = 96*2;
     // fb.width  = 64;
     // fb.height = 48;
     fb.pixels = (Vector4 *)calloc(fb.width * fb.height, sizeof(Vector4));
@@ -616,6 +620,9 @@ int main(int argc, char ** argv) {
 
     WriteFramebufferImage(&fb, gParams.image_output_filename);
 
+    fprintf(stderr, "Process %d done, exiting...\n", gMPI_CommRank);
+
+    MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
 
     return 0;
