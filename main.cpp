@@ -500,6 +500,13 @@ InitParams(int argc, char ** argv) {
             gParams.image_output_filename = strdup(argv[arg_i + 1]);
             arg_i++;
         }
+        else if (STATIC_STRNCMP("--data", arg) || STATIC_STRNCMP("-d", arg)) {
+            if (gParams.data_dirname) {
+                free(gParams.data_dirname);
+            }
+            gParams.data_dirname = strdup(argv[arg_i + 1]);
+            arg_i++;
+        }
 #undef STATIC_STRNCMP
     }
 }

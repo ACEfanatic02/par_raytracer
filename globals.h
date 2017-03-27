@@ -16,5 +16,6 @@ struct {
     Vector3 camera_position;
     Vector3 camera_facing;
     char * image_output_filename;
+    char * data_dirname;
 } gParams;
 
