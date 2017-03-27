@@ -448,6 +448,9 @@ InitParams(int argc, char ** argv) {
     gParams.camera_position = Vector3(475.0f, 250.0f, 0.0f);
     gParams.camera_facing = Normalize(Vector3(1.25f, -0.5f, 1.25f));
     gParams.image_output_filename = strdup("rt_out.png"); // Need this to be on the heap; might be free'd later.
+    gParams.data_dirname = strdup("/scratch/taylorbr/data/crytek-sponza/");
+    gParams.image_width = 720;
+    gParams.image_height = 480;
 
     // TODO(bryan):  INI
 
@@ -458,6 +461,14 @@ InitParams(int argc, char ** argv) {
         if (STATIC_STRNCMP("--ray-bias", arg)) {
             Argv_ReadFloat(argc, argv, arg_i, &gParams.ray_bias);
             arg_i++;
+        }
+        else if (STATIC_STRNCMP("--width", arg) || STATIC_STRNCMP("-w", arg)) {
+            Argv_ReadU32(argc, argv, arg_i, &gParams.image_width);
+            arg_i++;        
+        }
+        else if (STATIC_STRNCMP("--height", arg) || STATIC_STRNCMP("-h", arg)) {
+            Argv_ReadU32(argc, argv, arg_i, &gParams.image_height);
+            arg_i++;        
         }
         else if (STATIC_STRNCMP("--reflection_samples", arg) || STATIC_STRNCMP("-rs", arg)) {
             Argv_ReadU32(argc, argv, arg_i, &gParams.reflection_samples);
@@ -552,12 +563,8 @@ int main(int argc, char ** argv) {
     InitParams(argc, argv);
 
     Framebuffer fb;
-    //fb.width = 640;
-    //fb.height = 480;
-    fb.width = 128*2;
-    fb.height = 96*2;
-    // fb.width  = 64;
-    // fb.height = 48;
+    fb.width = gParams.image_width;
+    fb.height = gParams.image_height;
     fb.pixels = (Vector4 *)calloc(fb.width * fb.height, sizeof(Vector4));
     fb.DEBUG_rays_cast = (u32 *)calloc(fb.width*fb.height, sizeof(u32));
 
@@ -567,16 +574,8 @@ int main(int argc, char ** argv) {
     Matrix33 transform;
     transform.SetIdentity();
     {
-        // TODO(bryan):  HACK.  Should be handled by the parameter system.
-#ifdef _WIN32
-        #define DATA_DIR "D:/Users/Bryan/Desktop/meshes/crytek-sponza/"
-#else
-        #define DATA_DIR "/scratch/taylorbr/data/crytek-sponza/"
-#endif 
-
         TIME_BLOCK("Load Mesh");
-        // mesh = ParseOBJ("D:/Users/Bryan/Desktop/meshes/san-miguel/sanMiguel/sanMiguel.obj", transform);
-        mesh = ParseOBJ(DATA_DIR, "sponza.obj", transform);
+        mesh = ParseOBJ(gParams.data_dirname, "sponza.obj", transform);
     }
     {
         TIME_BLOCK("Calculate Tangents");
@@ -591,9 +590,9 @@ int main(int argc, char ** argv) {
         }
     }
 
-    printf("Vertices (p): %u\n", mesh->positions.size());
-    printf("Vertices (t): %u\n", mesh->texcoords.size());
-    printf("Vertices (n): %u\n", mesh->normals.size());
+    // printf("Vertices (p): %u\n", mesh->positions.size());
+    // printf("Vertices (t): %u\n", mesh->texcoords.size());
+    // printf("Vertices (n): %u\n", mesh->normals.size());
     {
         TIME_BLOCK("Build Hierarchy");
         BuildHierarchy(&hierarchy, mesh);
