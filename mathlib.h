@@ -14,6 +14,11 @@ Fract(float f) {
     return f - (s32)f;
 }
 
+inline float
+Signf(float val) {
+    return (0.0f < val) - (val < 0.0f);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 struct Vector2 {
@@ -780,6 +785,7 @@ Matrix33_FromToRotation(Vector3 from, Vector3 to) {
 
 static Matrix33
 Matrix33_FromAxisAngle(Vector3 axis, float theta) {
+    axis = Normalize(axis);
     float c = cosf(theta);
     float s = sinf(theta);
 
@@ -791,7 +797,7 @@ Matrix33_FromAxisAngle(Vector3 axis, float theta) {
     return Matrix33(
             t*x*x + c,    t*x*y - z*s,  t*x*z + y*s,
             t*x*y + z*s,  t*y*y + c,    t*y*z - x*s,
-            t*x*z - y*s,  t*y*z + z*s,  t*z*z + c
+            t*x*z - y*s,  t*y*z + x*s,  t*z*z + c
         );
 }
 
@@ -1129,6 +1135,13 @@ struct Quaternion {
         Set(w, x, y, z);
     }
 
+    Quaternion(Vector3 axis, float angle_radians) {
+        axis = Normalize(axis);
+        float c = cosf(angle_radians * 0.5f);
+        float s = sinf(angle_radians * 0.5f);
+        Set(c, axis.x*s, axis.y*s, axis.z*s);
+    }
+
     inline void
     Set(float w, float x, float y, float z) {
         this->w = w;
@@ -1276,4 +1289,12 @@ Quaternion_FromEuler(float heading, float altitude, float bank) {
     float qz = c1*s2*c3 - s1*c2*s3;
 
     return Quaternion(qw, qx, qy, qz);
+}
+
+inline Vector3
+operator*(Quaternion q, Vector3 v) {
+    Quaternion qv(0.0f, v.x, v.y, v.z);
+
+    Quaternion qr = q*qv*Quaternion_Inverse(q);
+    return Vector3(qr.x, qr.y, qr.z);
 }
