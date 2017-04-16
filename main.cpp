@@ -5,11 +5,49 @@
 
 #include "raytracer.cpp"
 
+// Sample of 16-bit true random numbers taken from random.org.
+u32 gRNGInitTable[128] = {
+    0xe80d, 0x593d, 0xca8c, 0x4a4b, 0x0490, 0xb7c9, 0x9f06, 0xcd4f,
+    0xe25a, 0x7f7a, 0x18e0, 0x3e49, 0x7d31, 0xba35, 0x012d, 0xefea,
+    0x4b09, 0xca4b, 0x63ce, 0x060a, 0x8b97, 0x02de, 0x6990, 0x4439,
+    0xfeda, 0x9b85, 0xffe8, 0xd7fa, 0x0ba6, 0x8ec9, 0xadd1, 0xba80,
+    0xd23a, 0xfac8, 0x3566, 0xe8b2, 0x39fc, 0x0b86, 0xf192, 0x5b61,
+    0x1f49, 0xdae5, 0xf40d, 0xd24c, 0xc2ec, 0x110f, 0x525c, 0xe8c5,
+    0x68ab, 0x4082, 0xfb96, 0x55fb, 0x6f2a, 0x8520, 0x3242, 0x6bea,
+    0x67f8, 0xf12f, 0xd0e3, 0x69ec, 0x12be, 0xfc6f, 0xca9a, 0xbcf1,
+    0xf1fb, 0x9571, 0xc52a, 0x3ed1, 0xb36d, 0xe094, 0xc24c, 0x1804,
+    0x4d4b, 0xdab0, 0xb0f2, 0x5ec3, 0xa517, 0x7282, 0x500b, 0x269d,
+    0x2e87, 0x2f6b, 0xdc5f, 0x487c, 0x97d3, 0xc8c6, 0x93ae, 0xdb26,
+    0xe672, 0x1bee, 0x9e4d, 0x72fb, 0x11b4, 0x3ae0, 0x2160, 0xd52e,
+    0x75e5, 0xf012, 0x0c9e, 0xb0a0, 0xfb28, 0x2804, 0x60ce, 0x2753,
+    0x3f9b, 0xfc92, 0x8720, 0x2676, 0x678e, 0x7fc7, 0x6884, 0x6ffd,
+    0xd388, 0x5f9e, 0x727c, 0x08b5, 0x9aac, 0xe0d1, 0x5335, 0x8aa6,
+    0x89a1, 0x5028, 0x0095, 0xaf50, 0x3a00, 0x5bd9, 0xfe49, 0x31d9,
+};
+
+static RandomState
+GetRNG(u32 process_id, u32 thread_id) {
+    // Produce a good quality seed from pid and tid.
+    // Each contributes 32 bits to the seed from table lookups.
+    u32 i0 = process_id % array_count(gRNGInitTable);
+    u32 i1 = thread_id  % array_count(gRNGInitTable);
+    u32 i2 = array_count(gRNGInitTable) - i0;
+    u32 i3 = array_count(gRNGInitTable) - i1;
+
+    u64 seed = gRNGInitTable[i0] << 0  |
+               gRNGInitTable[i1] << 16 |
+               gRNGInitTable[i2] << 32 |
+               gRNGInitTable[i3] << 48;
+
+    RandomState result;
+    Random_Seed(&result, seed);
+    return result;
+}
+
 struct Framebuffer {
     Vector4 * pixels;
     u32 width;
     u32 height;
-    u32 * DEBUG_rays_cast;
 };
 
 static s32 gMPI_CommSize;
@@ -122,12 +160,12 @@ struct Camera {
 };
 
 static Camera
-MakeCamera(float fov, Framebuffer * fb) {
+MakeCamera(float fov, u32 width, u32 height) {
     Camera cam;
     cam.tan_a2 = tanf(DEG2RAD(fov / 2.0f));
-    cam.aspect = (float)fb->width / (float)fb->height;
-    cam.inv_width = 1.0f / (float)fb->width;
-    cam.inv_height = 1.0f / (float)fb->height;
+    cam.aspect = (float)width / (float)height;
+    cam.inv_width = 1.0f / (float)width;
+    cam.inv_height = 1.0f / (float)height;
     cam.camera_position = gParams.camera_position;
 
     // TODO(bryan):  This will not work if the camera is *facing* near world up.
@@ -164,88 +202,99 @@ Color_Distance(Vector4 a, Vector4 b) {
          //+ fabsf(a.w - b.w);
 }
 
-static float
-CalculateLocalVariance(Framebuffer *fb, u32 x, u32 y) {
-    u32 min_x = Min(x - 2, 0);
-    u32 max_x = Min(x + 2, fb->width);
-    u32 min_y = Min(y - 2, 0);
-    u32 max_y = Min(y + 2, fb->height);
-
-    float sum = 0.0f;
-    u32 count = (max_x - min_x) * (max_y - min_y);
-    Vector4 mean;
-    for (u32 yy = min_y; yy <= max_y; ++yy) {
-        for (u32 xx = min_x; xx <= max_x; ++xx) {
-            mean += fb->pixels[yy*fb->width + xx];
-        }
-    }
-    mean /= (float)count;
-
-    for (u32 yy = min_y; yy <= max_y; ++yy) {
-        for (u32 xx = min_x; xx <= max_x; ++xx) {
-            u32 idx = yy * fb->width + xx;
-
-            Vector4 c0 = fb->pixels[idx];
-            float d = Color_Distance(c0, mean);
-            sum += d*d;
-        }
-    }
-    return sum / (float)count;
-}
-
-static void
-MakeVarianceMap(Framebuffer *fb, float * out_var) {
-    for (u32 y = 0; y < fb->height; ++y) {
-        for (u32 x = 0; x < fb->width; ++x) {
-            u32 idx = y * fb->width + x;
-            out_var[idx] = CalculateLocalVariance(fb, x, y); 
-        }
-    }
-}
-
-//#include <thread>
-//#include <atomic>
-
-Vector2 SSAA_Offsets[] = {
-#if 1
-    // Four Rooks / Rotated Grid sampling pattern.
-    Vector2(-0.375f,  0.125f),
-    Vector2( 0.125f,  0.375f),
-    Vector2( 0.375f, -0.125f),
-    Vector2(-0.125f,  0.375f),
-#else
-    Vector2(0, 0)
-#endif
-};
-
-Vector2 * sample_patterns = SSAA_Offsets;
-u32 sample_pattern_count = array_count(SSAA_Offsets);
-
-struct RenderJob {
+struct RenderSharedData {
     Camera * cam;
     Scene * scene;
-    Framebuffer * fb;
-    u32 * sample_counts;
-    u32 y;
+    u32 width;
+    u32 height;
+    u32 min_samples;
+    u32 max_samples;
 };
+
+struct RenderJob {
+    RenderSharedData * shared;
+    u32 start_idx;
+    u32 end_idx;
+    Vector4 * buffer;
+
+    RandomState rng;
+};
+
+static float
+CalculateVariance(Vector4 * vals, u32 count) {
+    Vector4 mean;
+    for (u32 i = 0; i < count; ++i) {
+        mean += vals[i];
+    }
+    mean /= count;
+
+    float variance = 0.0f;
+    for (u32 i = 0; i < count; ++i) {
+        float d = Color_Distance(vals[i], mean);
+        variance += d * d;
+    }
+    variance /= (count - 1);
+
+    return variance;
+}
+
+static Vector4
+RenderPixel(RenderJob * job, DebugCounters * debug, u32 x, u32 y) {
+    Camera * cam      = job->shared->cam;
+    Scene * scene     = job->shared->scene;
+    u32 min_samples   = job->shared->min_samples;
+    u32 max_samples   = job->shared->max_samples;
+    RandomState * rng = &job->rng;
+
+    Vector4 * scratch_buffer = (Vector4 *)calloc(sizeof(Vector4), max_samples);
+
+    Vector2 base_position(x, y);
+    Vector4 color;
+    u32 samp = 0;
+    for (; samp < min_samples; ++samp) {
+        Vector2 sample_offset(Random_NextFloat11(rng), Random_NextFloat11(rng));
+
+        Ray ray = MakeCameraRay(cam, base_position + sample_offset);
+        scratch_buffer[samp] = TraceRayColor(ray, scene, gParams.bounce_depth, debug);
+        color += scratch_buffer[samp];
+    }
+
+    float var = CalculateVariance(scratch_buffer, samp);
+    for (; samp < max_samples; ++samp) {
+        Vector2 sample_offset(Random_NextFloat11(rng), Random_NextFloat11(rng));
+
+        Ray ray = MakeCameraRay(cam, base_position + sample_offset);
+        scratch_buffer[samp] = TraceRayColor(ray, scene, gParams.bounce_depth, debug);
+        color += scratch_buffer[samp];
+
+        var = CalculateVariance(scratch_buffer, samp);
+        static const float variance_threshold = 0.01f; 
+        if (var <= variance_threshold) {
+            break;
+        }
+    }
+
+    free(scratch_buffer);
+
+    return color / samp;
+}
 
 static void
 RenderTask(RenderJob * job, DebugCounters * debug) {
-    for (u32 x = 0; x < job->fb->width; ++x) {
-        Vector4 color;
-        for (u32 s = 0; s < sample_pattern_count; ++s) {
-            Vector2 pos = Vector2(x, job->y) + sample_patterns[s];
-            Ray ray = MakeCameraRay(job->cam, pos);
-            color += TraceRayColor(ray, job->scene, gParams.bounce_depth, debug);
-            job->sample_counts[x + job->y * job->fb->width]++;
-        }
-        color /= sample_pattern_count;
-        WriteColor(job->fb, x, job->y, color.x, color.y, color.z, 1.0f);
+    u32 w = job->shared->width;
+    u32 h = job->shared->height;
+    Assert(w > 0 && h > 0, "Must have positive size.");
+
+    for (u32 i = job->start_idx; i < job->end_idx; ++i) {
+        u32 x = i % w;
+        u32 y = i / w;
+
+        u32 buffer_idx = i - job->start_idx;
+        job->buffer[buffer_idx] = RenderPixel(job, debug, x, y);
     }
 }
 
 std::vector<RenderJob> task_list;
-//std::atomic<u32> next_task;
 u32 next_task;
 
 static void
@@ -261,9 +310,9 @@ RenderQueueWorker(DebugCounters * debug) {
     }
 }
 
-static void
-Render(Camera * cam, Framebuffer * fb, Scene * scene) {
-    u32 * sample_counts = (u32 *)calloc(fb->width * fb->height, sizeof(u32));
+static Framebuffer
+Render(Camera * cam, Scene * scene, u32 width, u32 height) {
+    u32 * sample_counts = (u32 *)calloc(width * height, sizeof(u32));
 
     sample_pattern_count = 16;
     sample_patterns = (Vector2 *)calloc(sample_pattern_count, sizeof(Vector2));
@@ -272,100 +321,48 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
         sample_patterns[i].y = GetRandFloat11() * 0.5f;
     }
 
-    for (u32 y = 0; y < fb->height; ++y) {
-        if (y % gMPI_CommSize == gMPI_CommRank) {
-            RenderJob job;
-            job.cam = cam;
-            job.scene = scene;
-            job.fb = fb;
-            job.sample_counts = sample_counts;
-            job.y = y;
-
-            task_list.push_back(job);
-        }
-    }
+    u32 total_pixel_count = width * height;
+    Assert(total_pixel_count % gMPI_CommSize == 0, "Pixel count must be a multiple of process count.");
+    u32 count_per_proc = total_pixel_count / gMPI_CommSize;
+    RenderSharedData shared;
+    shared.cam = cam;
+    shared.scene = scene;
+    shared.width = width;
+    shared.height = height;
+    shared.min_samples = 10;
+    shared.max_samples = 100;
+   
+    RenderJob job;
+    job.shared = &shared;
+    job.start_idx = count_per_proc * gMPI_CommRank;
+    job.end_idx = count_per_proc * (gMPI_CommRank + 1);
+    job.buffer = (Vector4 *)calloc(sizeof(Vector4), count_per_proc);
+    job.rng = GetRNG(gMPI_CommRank, 0);
+    // TODO(bryan):  Need to allocate jobs across local threads as well.
 
     DebugCounters debug = {};
     {
         MPI_Barrier(MPI_COMM_WORLD);
         TIME_BLOCK("Render, Initial Pass");
-        //u32 thread_count = std::thread::hardware_concurrency() - 1;
-        //DebugCounters * debug_counters = (DebugCounters *)calloc(thread_count, sizeof(DebugCounters));
-        //std::vector<std::thread> threads;
-        //for (u32 i = 0; i < thread_count; ++i) {
-        //    threads.push_back(std::thread(RenderQueueWorker, debug_counters + i));
-        //}
-        // printf("%u render worker threads started.\n", thread_count);
         RenderQueueWorker(&debug);
-
-        //for (u32 i = 0; i < thread_count; ++i) {
-        //    threads[i].join();
-        //    debug.ray_count += debug_counters[i].ray_count;
-        //    debug.sphere_check_count += debug_counters[i].sphere_check_count;
-        //    debug.mesh_check_count += debug_counters[i].mesh_check_count;
-        //}
         MPI_Barrier(MPI_COMM_WORLD);
     }
 
-    ReduceImageMPI(fb);
-    WriteFramebufferImage(fb, "rt_out_beforevar.png");
+    // ReduceImageMPI(fb);
 
-    printf("Start variance reduction\n");
-    u32 max_variance_reduction_passes = 2;
-
-    float min_var = FLT_MAX;
-    float max_var = -FLT_MAX;
-    float * var_map = (float *)calloc(fb->width * fb->height, sizeof(float));
-    for (u32 pass = 0; pass < max_variance_reduction_passes; ++pass) {
-        const float variance_threshold = 1.0f;
-        {
-            TIME_BLOCK("Variance Map");
-            MakeVarianceMap(fb, var_map);
-        }
-        for (u32 y = 0; y < fb->height; ++y) {
-            if (y % gMPI_CommSize != gMPI_CommRank) {
-                continue;  // HACK, this entire loop needs serious cleanup.
-            }
-            TIME_BLOCK("Render Row");
-            u32 skip_count = 0;
-            for (u32 x = 0; x < fb->width; ++x) {
-                u32 idx = y * fb->width + x;
-
-                min_var = Min(min_var, var_map[idx]);
-                max_var = Max(max_var, var_map[idx]);
-
-                if (var_map[idx] < variance_threshold) {
-                    skip_count++;
-                    continue;
-                }
-
-                Vector4 color = fb->pixels[idx];
-
-                for (u32 i = 0; i < sample_pattern_count; ++i) {
-                    float off_x = GetRandFloat11() * 0.5f;
-                    float off_y = GetRandFloat11() * 0.5f;
-                    Vector2 pos = Vector2(x + off_x, y + off_y);
-                    Ray ray = MakeCameraRay(cam, pos);
-                    u32 sample_count = sample_counts[idx]++;
-                    Vector4 sample_color = TraceRayColor(ray, scene, gParams.bounce_depth, &debug);
-
-                    // Numerically robust incremental average.
-                    // http://realtimecollisiondetection.net/blog/?p=48
-                    color = color * ((float)sample_count / (sample_count + 1)) 
-                          + sample_color / (float)sample_count;
-                }
-                
-                WriteColor(fb, x, y, color.x, color.y, color.z, 1.0f);
-            }
-            // printf("Skipped %d pixels\n", skip_count);
-        }
-        // printf("Variance min: %f  max: %f\n", min_var, max_var);
-
-        char buffer[256];
-        snprintf(buffer, sizeof(buffer), "rt_out_pass%02d.png", pass + 1);
-        WriteFramebufferImage(fb, buffer);
+    Framebuffer result;
+    result.width  = width;
+    result.height = height;
+    if (gMPI_CommRank == 0) {
+        result.pixels = (Vector4 *)calloc(sizeof(Vector4), total_pixel_count);
     }
-    free(var_map);
+
+    {
+        // MPI Reduction
+        MPI_Gather(job.buffer, count_per_proc*4, MPI_FLOAT,
+                   result.pixels, count_per_proc*4, MPI_FLOAT,
+                   0, MPI_COMM_WORLD);
+    }
 
     u32 pixel_count = fb->height*fb->width;
     printf("Process %d\n", gMPI_CommRank);
@@ -374,6 +371,7 @@ Render(Camera * cam, Framebuffer * fb, Scene * scene) {
     printf("   average / pixel: %f\n", (double)debug.sphere_check_count / pixel_count);
     printf("Meshes checked:     %llu\n", debug.mesh_check_count);
     printf("   average / pixel: %f\n", (double)debug.mesh_check_count / pixel_count);
+    return result;
 }
 
 static void
@@ -562,13 +560,7 @@ int main(int argc, char ** argv) {
 
     InitParams(argc, argv);
 
-    Framebuffer fb;
-    fb.width = gParams.image_width;
-    fb.height = gParams.image_height;
-    fb.pixels = (Vector4 *)calloc(fb.width * fb.height, sizeof(Vector4));
-    fb.DEBUG_rays_cast = (u32 *)calloc(fb.width*fb.height, sizeof(u32));
-
-    Camera cam = MakeCamera(gParams.camera_fov, &fb);
+    Camera cam = MakeCamera(gParams.camera_fov, gParams.image_width, gParams.image_height);
     Mesh * mesh;
     BoundingHierarchy hierarchy;
     Matrix33 transform;
@@ -624,7 +616,7 @@ int main(int argc, char ** argv) {
     }
     printf("Triangles: %u\n", total_tris);
 
-    Render(&cam, &fb, &scene);
+    fb = Render(&cam, &scene, gParams.image_width, gParams.image_height);
 
     WriteFramebufferImage(&fb, gParams.image_output_filename);
 
