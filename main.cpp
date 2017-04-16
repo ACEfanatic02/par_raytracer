@@ -53,45 +53,6 @@ struct Framebuffer {
 static s32 gMPI_CommSize;
 static s32 gMPI_CommRank;
 
-static void
-ReduceImageMPI(Framebuffer * fb) {
-    u32 total_pixel_count = fb->width * fb->height;
-    Vector4 * recv_buffer = (Vector4 *)calloc(total_pixel_count, sizeof(Vector4));
-
-    // Each rank processes individual rows in a cycle, so we need multiple gathers to
-    // collect all the data.
-    //
-    // We use an Allgather so that each rank ends up with the complete framebuffer; this
-    // will be used to calculate pixel variance between passes.
-
-    u32 cycle_count = (fb->height + gMPI_CommSize - 1) / gMPI_CommSize;
-    for (u32 cycle = 0; cycle < cycle_count; ++cycle) {
-        u32 row = cycle * gMPI_CommSize;
-        // Final cycle may not be complete.
-        // e.g, 5 rows over 4 processes.
-        if (row + gMPI_CommRank < fb->height) {
-            Vector4 * recv_pointer = recv_buffer + (fb->width * row);
-            Vector4 * send_pointer = fb->pixels + (fb->width * (row + gMPI_CommRank));
-            MPI_Allgather(send_pointer, fb->width * 4, MPI_FLOAT,
-                          recv_pointer, fb->width * 4, MPI_FLOAT,
-                          MPI_COMM_WORLD);
-        }
-    }
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    free(fb->pixels);
-    fb->pixels = recv_buffer;
-}
-
-static void
-WriteColor(Framebuffer * fb, u32 x, u32 y, float r, float g, float b, float a) {
-    u32 idx = fb->width * y + x;
-    fb->pixels[idx].x = r;
-    fb->pixels[idx].y = g;
-    fb->pixels[idx].z = b;
-    fb->pixels[idx].w = a;
-}
-
 static float
 LogAverageLuma(Framebuffer * fb) {
     // Log-average / geometric mean of scene luma:
@@ -285,6 +246,8 @@ RenderTask(RenderJob * job, DebugCounters * debug) {
     u32 h = job->shared->height;
     Assert(w > 0 && h > 0, "Must have positive size.");
 
+    printf("Task, from %u to %u\n", job->start_idx, job->end_idx);
+
     for (u32 i = job->start_idx; i < job->end_idx; ++i) {
         u32 x = i % w;
         u32 y = i / w;
@@ -312,9 +275,6 @@ RenderQueueWorker(DebugCounters * debug) {
 
 static Framebuffer
 Render(Camera * cam, Scene * scene, u32 width, u32 height) {
-    u32 total_pixel_count = width * height;
-    Assert(total_pixel_count % gMPI_CommSize == 0, "Pixel count must be a multiple of process count.");
-    u32 count_per_proc = total_pixel_count / gMPI_CommSize;
     RenderSharedData shared;
     shared.cam = cam;
     shared.scene = scene;
@@ -323,6 +283,9 @@ Render(Camera * cam, Scene * scene, u32 width, u32 height) {
     shared.min_samples = 10;
     shared.max_samples = 100;
    
+    u32 total_pixel_count = width * height;
+    Assert(total_pixel_count % gMPI_CommSize == 0, "Pixel count must be a multiple of process count.");
+    u32 count_per_proc = total_pixel_count / gMPI_CommSize;
     RenderJob job;
     job.shared = &shared;
     job.start_idx = count_per_proc * gMPI_CommRank;
@@ -350,7 +313,7 @@ Render(Camera * cam, Scene * scene, u32 width, u32 height) {
 
     {
         // MPI Reduction
-        MPI_Gather(job.buffer, count_per_proc*4, MPI_FLOAT,
+        MPI_Gather(job.buffer,    count_per_proc*4, MPI_FLOAT,
                    result.pixels, count_per_proc*4, MPI_FLOAT,
                    0, MPI_COMM_WORLD);
     }
