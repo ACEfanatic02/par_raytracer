@@ -6,7 +6,7 @@
 #include "raytracer.cpp"
 
 // Sample of 16-bit true random numbers taken from random.org.
-u32 gRNGInitTable[128] = {
+u64 gRNGInitTable[128] = {
     0xe80d, 0x593d, 0xca8c, 0x4a4b, 0x0490, 0xb7c9, 0x9f06, 0xcd4f,
     0xe25a, 0x7f7a, 0x18e0, 0x3e49, 0x7d31, 0xba35, 0x012d, 0xefea,
     0x4b09, 0xca4b, 0x63ce, 0x060a, 0x8b97, 0x02de, 0x6990, 0x4439,
@@ -252,7 +252,7 @@ RenderPixel(RenderJob * job, DebugCounters * debug, u32 x, u32 y) {
     Vector4 color;
     u32 samp = 0;
     for (; samp < min_samples; ++samp) {
-        Vector2 sample_offset(Random_NextFloat11(rng), Random_NextFloat11(rng));
+        Vector2 sample_offset(Random_NextFloat11(rng), Random_NextFloat11(rng)) * 0.5f;
 
         Ray ray = MakeCameraRay(cam, base_position + sample_offset);
         scratch_buffer[samp] = TraceRayColor(ray, scene, gParams.bounce_depth, debug);
@@ -312,15 +312,6 @@ RenderQueueWorker(DebugCounters * debug) {
 
 static Framebuffer
 Render(Camera * cam, Scene * scene, u32 width, u32 height) {
-    u32 * sample_counts = (u32 *)calloc(width * height, sizeof(u32));
-
-    sample_pattern_count = 16;
-    sample_patterns = (Vector2 *)calloc(sample_pattern_count, sizeof(Vector2));
-    for (u32 i = 0; i < sample_pattern_count; ++i) {
-        sample_patterns[i].x = GetRandFloat11() * 0.5f;
-        sample_patterns[i].y = GetRandFloat11() * 0.5f;
-    }
-
     u32 total_pixel_count = width * height;
     Assert(total_pixel_count % gMPI_CommSize == 0, "Pixel count must be a multiple of process count.");
     u32 count_per_proc = total_pixel_count / gMPI_CommSize;
@@ -616,7 +607,7 @@ int main(int argc, char ** argv) {
     }
     printf("Triangles: %u\n", total_tris);
 
-    fb = Render(&cam, &scene, gParams.image_width, gParams.image_height);
+    Framebuffer fb = Render(&cam, &scene, gParams.image_width, gParams.image_height);
 
     WriteFramebufferImage(&fb, gParams.image_output_filename);
 
