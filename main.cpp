@@ -31,8 +31,8 @@ GetRNG(u32 process_id, u32 thread_id) {
     // Each contributes 32 bits to the seed from table lookups.
     u32 i0 = process_id % array_count(gRNGInitTable);
     u32 i1 = thread_id  % array_count(gRNGInitTable);
-    u32 i2 = array_count(gRNGInitTable) - i0;
-    u32 i3 = array_count(gRNGInitTable) - i1;
+    u32 i2 = array_count(gRNGInitTable) - i0 - 1;
+    u32 i3 = array_count(gRNGInitTable) - i1 - 1;
 
     u64 seed = gRNGInitTable[i0] << 0  |
                gRNGInitTable[i1] << 16 |
