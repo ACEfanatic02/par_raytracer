@@ -252,9 +252,9 @@ RenderPixel(RenderJob * job, DebugCounters * debug, u32 x, u32 y) {
     Vector4 color;
     u32 samp = 0;
     for (; samp < min_samples; ++samp) {
-        Vector2 sample_offset(Random_NextFloat11(rng), Random_NextFloat11(rng)) * 0.5f;
+        Vector2 sample_offset(Random_NextFloat11(rng), Random_NextFloat11(rng));
 
-        Ray ray = MakeCameraRay(cam, base_position + sample_offset);
+        Ray ray = MakeCameraRay(cam, base_position + sample_offset * 0.5f);
         scratch_buffer[samp] = TraceRayColor(ray, scene, gParams.bounce_depth, debug);
         color += scratch_buffer[samp];
     }
@@ -355,13 +355,12 @@ Render(Camera * cam, Scene * scene, u32 width, u32 height) {
                    0, MPI_COMM_WORLD);
     }
 
-    u32 pixel_count = fb->height*fb->width;
     printf("Process %d\n", gMPI_CommRank);
     printf("Rays cast:          %llu\n", debug.ray_count);
     printf("Spheres checked:    %llu\n", debug.sphere_check_count);
-    printf("   average / pixel: %f\n", (double)debug.sphere_check_count / pixel_count);
+    printf("   average / pixel: %f\n", (double)debug.sphere_check_count / total_pixel_count);
     printf("Meshes checked:     %llu\n", debug.mesh_check_count);
-    printf("   average / pixel: %f\n", (double)debug.mesh_check_count / pixel_count);
+    printf("   average / pixel: %f\n", (double)debug.mesh_check_count / total_pixel_count);
     return result;
 }
 
