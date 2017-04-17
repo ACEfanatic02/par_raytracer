@@ -411,7 +411,7 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
 }
 
 static Vector4
-TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
+TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug, RandomState * rng) {
     Vector4 color = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
     if (iters < 0) {
         return color;
@@ -512,7 +512,11 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
         Vector4 indirect_specular_light;
         if (iters > 0) {
             for (u32 samp = 0; samp < gParams.reflection_samples; ++samp) {
-                Vector2 Xi = Hammersley(samp, gParams.reflection_samples);
+                // Straight Hammersley sampling produces artifacts for small sample counts.  Instead,
+                // sample randomly out of a larger Hammersley set.
+                static const u32 series_n = 1024;
+                u32 series_i = Random_Next(rng) % series_n;
+                Vector2 Xi = Hammersley(series_i, series_n);
                 Ray reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal, Xi);
 
                 Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
@@ -524,7 +528,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
                 Ray reflect_ray = GetSpecularReflectionRay(hit_p, hit_normal, mat->specular_intensity, Xi);
                 Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
 
-                float weight = Max(0.0f, Dot(-reflect_ray.direction, -ray.direction));
+                float weight = Max(0.0f, Dot(reflect_ray.direction, -ray.direction));
                 indirect_specular_light += spec_color * weight;
             }
         }
