@@ -237,7 +237,9 @@ RenderPixel(RenderJob * job, DebugCounters * debug, u32 x, u32 y) {
 
     free(scratch_buffer);
 
-    return color / samp;
+    color /= samp;
+    color.w = 1.0f;
+    return color;
 }
 
 static void
