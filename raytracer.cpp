@@ -513,7 +513,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
         if (iters > 0) {
             for (u32 samp = 0; samp < gParams.reflection_samples; ++samp) {
                 Vector2 Xi = Hammersley(samp, gParams.reflection_samples);
-                Ray reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal);
+                Ray reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal, Xi);
 
                 Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
                 indirect_light += reflect_color * Max(0.0f, Dot(hit_normal, reflect_ray.direction));
