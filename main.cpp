@@ -283,7 +283,7 @@ Render(Camera * cam, Scene * scene, u32 width, u32 height) {
     shared.width = width;
     shared.height = height;
     shared.min_samples = 10;
-    shared.max_samples = 100;
+    shared.max_samples = 10;
    
     u32 total_pixel_count = width * height;
     Assert(total_pixel_count % gMPI_CommSize == 0, "Pixel count must be a multiple of process count.");
