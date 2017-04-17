@@ -446,7 +446,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug, RandomSt
                 if (alpha <= 0.05f) {
                     // For really low alpha, treat as a complete miss.
                     ray.origin = hit.position + ray.direction * gParams.ray_bias * 2.0f;
-                    return TraceRayColor(ray, scene, iters, debug);
+                    return TraceRayColor(ray, scene, iters, debug, rng);
                 }
             }
             if (mat->ambient_texture) {
