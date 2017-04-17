@@ -290,8 +290,8 @@ Hammersley(u32 i, u32 N) {
 Vector3
 ImportanceSamplePhong(Vector2 Xi, float e) {
     float phi = 2.0f * PI32 * Xi.x;
-    float cp = cos(phi);
-    float sp = sin(phi);
+    float cp = cosf(phi);
+    float sp = sinf(phi);
 
     float ct = powf(1.0f - Xi.y, 1.0f / (e + 1.0f));
     float st = sqrtf(1.0f - (ct*ct));
@@ -318,44 +318,26 @@ GetSpecularReflectionRay(Vector3 origin, Vector3 normal, float specular_intensit
 }
 
 static Ray
-GetRayInCone(Vector3 origin, Vector3 normal, float min_cos) {
-    Ray ray;
-    ray.origin = origin;
+GetDiffuseReflectionRay(Vector3 origin, Vector3 normal, Vector2 Xi) {
+    float phi = Xi.y * 2.0f * PI32;
+    float cp = cosf(phi); 
+    float sp = sinf(phi); 
+    float ct = sqrtf(1.0f - Xi.x);
+    float st = sqrtf(1.0f - ct*ct);
 
-    // Pick a random angle (this will be rotation around normal)
-    float angle = GetRandFloat01() * PI32 * 2.0f;
-    // Pick random height along normal
-    float z = Lerp(min_cos, 1.0f, GetRandFloat01());
-    z = Clamp(z, min_cos, 1.0f);
-    // Project that height onto the tangent plane
-    float xy = (1.0f - z*z);
-    // Calculate the tangent components
-    float ct = cosf(angle);
-    float st = sinf(angle);
-    float x = xy * ct;
-    float y = xy * st;
-    // Renormalize just to be sure.
+    Vector3 dir_tangent_space(cp*st, sp*st, ct);
 
-    static const float epsilon = 1e-5;
-    Vector3 v = Normalize(Vector3(x, y, z));
-    float d = Dot(normal, Vector3(0, 0, 1));
-    if (d > 1.0f - epsilon) {
-        ray.direction = v;
-    }
-    else if (d < -1.0f + epsilon) {
-        ray.direction = -v;
-    }
-    else {
-        Vector3 axis = Normalize(Cross(Vector3(0, 0, 1), normal));
-        ray.direction = Normalize(Matrix33_FromAxisAngle(axis, acosf(d)) * v);
-    }
+    Vector3 up = fabsf(normal.z) < 0.9999f ? Vector3(0, 0, 1) : Vector3(1, 0, 0);
+    Vector3 tangent   = Normalize(Cross(up, normal));
+    Vector3 bitangent = Normalize(Cross(normal, tangent));
 
-    return ray;
-}
-
-static Ray
-GetDiffuseReflectionRay(Vector3 origin, Vector3 normal) {
-    return GetRayInCone(origin, normal, 0.0f);
+    Vector3 dir_world_space = Normalize(tangent * dir_tangent_space.x + 
+                                        bitangent * dir_tangent_space.y + 
+                                        normal * dir_tangent_space.z);
+    Ray result;
+    result.origin = origin;
+    result.direction = dir_world_space;
+    return result;
 }
 
 inline Vector3
@@ -530,23 +512,16 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
         Vector4 indirect_specular_light;
         if (iters > 0) {
             for (u32 samp = 0; samp < gParams.reflection_samples; ++samp) {
-                Ray reflect_ray;
-                float d;
-                do {
-                    reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal);
-                    d = Dot(hit_normal, reflect_ray.direction);
-                    // NOTE(bryan):  BUG
-                    // It's unclear how we're getting rays that point away from
-                    // the normal, since we're specifically selecting rays in the hemisphere.
-                } while (d < 0.0f);
+                Vector2 Xi = Hammersley(samp, gParams.reflection_samples);
+                Ray reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal);
+
                 Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
-                indirect_light += reflect_color * d;
+                indirect_light += reflect_color * Max(0.0f, Dot(hit_normal, reflect_ray.direction));
             }
 
             for (u32 samp = 0; samp < gParams.spec_samples; ++samp) {
                 Vector2 Xi = Hammersley(samp, gParams.spec_samples);
                 Ray reflect_ray = GetSpecularReflectionRay(hit_p, hit_normal, mat->specular_intensity, Xi);
-                // Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), 1.0f - DEG2RAD(15.0f));
                 Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
 
                 float weight = Max(0.0f, Dot(-reflect_ray.direction, -ray.direction));
