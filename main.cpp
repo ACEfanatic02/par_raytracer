@@ -216,7 +216,7 @@ RenderPixel(RenderJob * job, DebugCounters * debug, u32 x, u32 y) {
         Vector2 sample_offset(Random_NextFloat11(rng), Random_NextFloat11(rng));
 
         Ray ray = MakeCameraRay(cam, base_position + sample_offset * 0.5f);
-        scratch_buffer[samp] = TraceRayColor(ray, scene, gParams.bounce_depth, debug);
+        scratch_buffer[samp] = TraceRayColor(ray, scene, gParams.bounce_depth, debug, rng);
         color += scratch_buffer[samp];
     }
 
@@ -225,7 +225,7 @@ RenderPixel(RenderJob * job, DebugCounters * debug, u32 x, u32 y) {
         Vector2 sample_offset(Random_NextFloat11(rng), Random_NextFloat11(rng));
 
         Ray ray = MakeCameraRay(cam, base_position + sample_offset);
-        scratch_buffer[samp] = TraceRayColor(ray, scene, gParams.bounce_depth, debug);
+        scratch_buffer[samp] = TraceRayColor(ray, scene, gParams.bounce_depth, debug, rng);
         color += scratch_buffer[samp];
 
         var = CalculateVariance(scratch_buffer, samp);

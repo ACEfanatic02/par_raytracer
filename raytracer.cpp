@@ -519,14 +519,14 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug, RandomSt
                 Vector2 Xi = Hammersley(series_i, series_n);
                 Ray reflect_ray = GetDiffuseReflectionRay(hit_p, hit_normal, Xi);
 
-                Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
+                Vector4 reflect_color = TraceRayColor(reflect_ray, scene, iters - 1, debug, rng);
                 indirect_light += reflect_color * Max(0.0f, Dot(hit_normal, reflect_ray.direction));
             }
 
             for (u32 samp = 0; samp < gParams.spec_samples; ++samp) {
                 Vector2 Xi = Hammersley(samp, gParams.spec_samples);
                 Ray reflect_ray = GetSpecularReflectionRay(hit_p, hit_normal, mat->specular_intensity, Xi);
-                Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
+                Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1, debug, rng);
 
                 float weight = Max(0.0f, Dot(reflect_ray.direction, -ray.direction));
                 indirect_specular_light += spec_color * weight;
@@ -545,7 +545,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug, RandomSt
         if (alpha < 1.0f) {
             // Translucent, need to sample the continued ray and blend.
             ray.origin = hit.position + ray.direction * gParams.ray_bias * 2.0f;
-            Vector4 back_color = TraceRayColor(ray, scene, iters - 1, debug);
+            Vector4 back_color = TraceRayColor(ray, scene, iters - 1, debug, rng);
             color = color * alpha + back_color * (1.0f - alpha);
         }
 
