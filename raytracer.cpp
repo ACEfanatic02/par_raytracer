@@ -270,6 +270,53 @@ GetRandFloat11() {
     return Random_NextFloat11(&rng);
 }
 
+float
+RadicalInverse_VdC(u32 bits) {
+    // Helper function for the Hammersley sequence.
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return bits * 2.3283064365386963e-10; // / 0x100000000
+}
+
+Vector2
+Hammersley(u32 i, u32 N) {
+    // Calculate the ith item of a N-item Hammersley sequence.
+    return Vector2((float)i/(float)N, RadicalInverse_VdC(i));
+}
+
+Vector3
+ImportanceSamplePhong(Vector2 Xi, float e) {
+    float phi = 2.0f * PI32 * Xi.x;
+    float cp = cos(phi);
+    float sp = sin(phi);
+
+    float ct = powf(1.0f - Xi.y, 1.0f / (e + 1.0f));
+    float st = sqrtf(1.0f - (ct*ct));
+
+    return Vector3(cp*st, sp*st, ct);
+}
+
+static Ray
+GetSpecularReflectionRay(Vector3 origin, Vector3 normal, float specular_intensity, Vector2 Xi) {
+    Vector3 dir_tangent_space = ImportanceSamplePhong(Xi, specular_intensity);
+
+    Vector3 up = fabsf(normal.z) < 0.9999f ? Vector3(0, 0, 1) : Vector3(1, 0, 0);
+    Vector3 tangent   = Normalize(Cross(up, normal));
+    Vector3 bitangent = Normalize(Cross(normal, tangent));
+
+    Vector3 dir_world_space = Normalize(tangent * dir_tangent_space.x + 
+                                        bitangent * dir_tangent_space.y + 
+                                        normal * dir_tangent_space.z);
+
+    Ray result;
+    result.origin = origin;
+    result.direction = dir_world_space;
+    return result;
+}
+
 static Ray
 GetRayInCone(Vector3 origin, Vector3 normal, float min_cos) {
     Ray ray;
@@ -497,7 +544,9 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
             }
 
             for (u32 samp = 0; samp < gParams.spec_samples; ++samp) {
-                Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), 1.0f - DEG2RAD(15.0f));
+                Vector2 Xi = Hammersley(samp, gParams.spec_samples);
+                Ray reflect_ray = GetSpecularReflectionRay(hit_p, hit_normal, mat->specular_intensity);
+                // Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), 1.0f - DEG2RAD(15.0f));
                 Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
 
                 indirect_specular_light += spec_color;
