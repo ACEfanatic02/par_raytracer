@@ -294,6 +294,8 @@ Render(Camera * cam, Scene * scene, u32 width, u32 height) {
     job.rng = GetRNG(gMPI_CommRank, 0);
     // TODO(bryan):  Need to allocate jobs across local threads as well.
 
+    task_list.push_back(job);
+
     DebugCounters debug = {};
     {
         MPI_Barrier(MPI_COMM_WORLD);
