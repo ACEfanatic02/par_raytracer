@@ -545,7 +545,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
 
             for (u32 samp = 0; samp < gParams.spec_samples; ++samp) {
                 Vector2 Xi = Hammersley(samp, gParams.spec_samples);
-                Ray reflect_ray = GetSpecularReflectionRay(hit_p, hit_normal, mat->specular_intensity);
+                Ray reflect_ray = GetSpecularReflectionRay(hit_p, hit_normal, mat->specular_intensity, Xi);
                 // Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), 1.0f - DEG2RAD(15.0f));
                 Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
 
@@ -560,7 +560,7 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
 
         color += ambient_color * 0.1f;
         color += (indirect_light + direct_light) * diffuse_color * w_diffuse;
-        color += (indirect_specular_light + direct_specular_light) * specular_color * w_reflect;
+        color += (indirect_specular_light + direct_specular_light) * specular_color;// * w_reflect;
         
         if (alpha < 1.0f) {
             // Translucent, need to sample the continued ray and blend.

@@ -396,7 +396,7 @@ InitParams(int argc, char ** argv) {
     gParams.reflection_samples = 1;
     gParams.spec_samples = 1;
     gParams.bounce_depth = 2;
-    gParams.background_color = Vector4(0.1275f, 0.8913f, 1.0f, 1.0f)*1.5f; // Sky color, serves as an area light if all rays miss.
+    gParams.background_color = Vector4(0.8275f, 0.8913f, 1.0f, 1.0f)*1.5f; // Sky color, serves as an area light if all rays miss.
     gParams.camera_fov = 60.0f;
     // gParams.camera_position = Vector3(0.0f, 15.0f, 10.0f);
     // gParams.camera_facing = Normalize(Vector3(0.0f, -0.5f, -1));

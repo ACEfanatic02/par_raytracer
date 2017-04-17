@@ -61,456 +61,454 @@ Triangles: 262267
 Triangles: 262267
 Triangles: 262267
 Triangles: 262267
-Task, from 31200 to 32400
-Task, from 75600 to 76800
-Task, from 10800 to 12000
-Task, from 54000 to 55200
-Task, from 45600 to 46800
-Task, from 66000 to 67200
-Task, from 33600 to 34800
-Task, from 70800 to 72000
-Task, from 15600 to 16800
-Task, from 51600 to 52800
-Task, from 46800 to 48000
-Task, from 61200 to 62400
-Task, from 63600 to 64800
-Task, from 36000 to 37200
+Task, from 48000 to 49200
 Task, from 72000 to 73200
-Task, from 18000 to 19200
-Task, from 49200 to 50400
-Task, from 43200 to 44400
-Task, from 73200 to 74400
-Task, from 13200 to 14400
-Task, from 56400 to 57600
-Task, from 38400 to 39600
-Task, from 57600 to 58800
-Task, from 34800 to 36000
-Task, from 52800 to 54000
-Task, from 39600 to 40800
-Task, from 58800 to 60000
-Task, from 32400 to 33600
-Task, from 74400 to 75600
 Task, from 9600 to 10800
-Task, from 64800 to 66000
-Task, from 37200 to 38400
+Task, from 45600 to 46800
+Task, from 6000 to 7200
+Task, from 49200 to 50400
+Task, from 73200 to 74400
+Task, from 10800 to 12000
+Task, from 46800 to 48000
+Task, from 1200 to 2400
+Task, from 0 to 1200
+Task, from 50400 to 51600
+Task, from 74400 to 75600
+Task, from 12000 to 13200
+Task, from 39600 to 40800
+Task, from 54000 to 55200
+Task, from 75600 to 76800
+Task, from 13200 to 14400
+Task, from 38400 to 39600
+Task, from 4800 to 6000
+Task, from 14400 to 15600
+Task, from 42000 to 43200
+Task, from 2400 to 3600
+Task, from 52800 to 54000
+Task, from 70800 to 72000
+Task, from 56400 to 57600
+Task, from 69600 to 70800
+Task, from 15600 to 16800
+Task, from 44400 to 45600
+Task, from 8400 to 9600
+Task, from 55200 to 56400
+Task, from 67200 to 68400
+Task, from 18000 to 19200
+Task, from 40800 to 42000
+Task, from 7200 to 8400
+Task, from 51600 to 52800
 Task, from 68400 to 69600
 Task, from 16800 to 18000
-Task, from 50400 to 51600
-Task, from 44400 to 45600
-Task, from 40800 to 42000
-Task, from 60000 to 61200
-Task, from 28800 to 30000
-Task, from 69600 to 70800
-Task, from 12000 to 13200
-Task, from 48000 to 49200
-Task, from 30000 to 31200
-Task, from 67200 to 68400
-Task, from 14400 to 15600
-Task, from 55200 to 56400
-Task, from 42000 to 43200
+Task, from 43200 to 44400
+Task, from 3600 to 4800
+Task, from 63600 to 64800
+Task, from 61200 to 62400
 Task, from 62400 to 63600
-Task, from 25200 to 26400
-Task, from 22800 to 24000
-Task, from 19200 to 20400
+Task, from 57600 to 58800
+Task, from 60000 to 61200
+Task, from 64800 to 66000
+Task, from 66000 to 67200
+Task, from 58800 to 60000
+Task, from 32400 to 33600
+Task, from 37200 to 38400
+Task, from 33600 to 34800
+Task, from 30000 to 31200
+Task, from 28800 to 30000
+Task, from 34800 to 36000
+Task, from 31200 to 32400
+Task, from 36000 to 37200
 Task, from 21600 to 22800
 Task, from 20400 to 21600
-Task, from 24000 to 25200
+Triangles: 262267
+Task, from 22800 to 24000
 Task, from 26400 to 27600
 Task, from 27600 to 28800
-Task, from 3600 to 4800
-Task, from 7200 to 8400
-Triangles: 262267
-Task, from 4800 to 6000
-Task, from 1200 to 2400
-Task, from 6000 to 7200
-Task, from 0 to 1200
-Task, from 8400 to 9600
-Task, from 2400 to 3600
+Task, from 24000 to 25200
+Task, from 19200 to 20400
+Task, from 25200 to 26400
 Process 8
-Rays cast:          24000
-Spheres checked:    2429840
-   average / pixel: 31.638542
-Meshes checked:     604948
-   average / pixel: 7.876927
+Rays cast:          765822
+Spheres checked:    74703554
+   average / pixel: 972.702526
+Meshes checked:     17931767
+   average / pixel: 233.486549
 Process 9
-Rays cast:          24000
-Spheres checked:    2443194
-   average / pixel: 31.812422
-Meshes checked:     610115
-   average / pixel: 7.944206
-Process 10
-Rays cast:          24000
-Spheres checked:    2415424
-   average / pixel: 31.450833
-Meshes checked:     607104
-   average / pixel: 7.905000
+Rays cast:          763143
+Spheres checked:    75395869
+   average / pixel: 981.717044
+Meshes checked:     18075166
+   average / pixel: 235.353724
 Process 16
-Rays cast:          24000
-Spheres checked:    2469832
-   average / pixel: 32.159271
-Meshes checked:     611724
-   average / pixel: 7.965156
-Process 11
-Rays cast:          24000
-Spheres checked:    2399174
-   average / pixel: 31.239245
-Meshes checked:     606870
-   average / pixel: 7.901953
-Process 12
-Rays cast:          24000
-Spheres checked:    2399106
-   average / pixel: 31.238359
-Meshes checked:     600417
-   average / pixel: 7.817930
-Process 17
-Rays cast:          24000
-Spheres checked:    2485514
-   average / pixel: 32.363464
-Meshes checked:     614005
-   average / pixel: 7.994857
-Process 19
-Rays cast:          24000
-Spheres checked:    2496582
-   average / pixel: 32.507578
-Meshes checked:     620183
-   average / pixel: 8.075299
-Process 13
-Rays cast:          24000
-Spheres checked:    2452558
-   average / pixel: 31.934349
-Meshes checked:     606001
-   average / pixel: 7.890638
-Process 15
-Rays cast:          24000
-Spheres checked:    2484972
-   average / pixel: 32.356406
-Meshes checked:     614860
-   average / pixel: 8.005990
-Process 18
-Rays cast:          24000
-Spheres checked:    2481186
-   average / pixel: 32.307109
-Meshes checked:     616121
-   average / pixel: 8.022409
-Process 14
-Rays cast:          24000
-Spheres checked:    2461054
-   average / pixel: 32.044974
-Meshes checked:     609189
-   average / pixel: 7.932148
-Process 20
-Rays cast:          24000
-Spheres checked:    2485908
-   average / pixel: 32.368594
-Meshes checked:     620653
-   average / pixel: 8.081419
-Process 21
-Rays cast:          24000
-Spheres checked:    2476482
-   average / pixel: 32.245859
-Meshes checked:     616816
-   average / pixel: 8.031458
-Process 23
-Rays cast:          24000
-Spheres checked:    2460018
-   average / pixel: 32.031484
-Meshes checked:     615298
-   average / pixel: 8.011693
-Process 22
-Rays cast:          24000
-Spheres checked:    2478170
-   average / pixel: 32.267839
-Meshes checked:     617174
-   average / pixel: 8.036120
-Process 24
-Rays cast:          24000
-Spheres checked:    2399716
-   average / pixel: 31.246302
-Meshes checked:     604222
-   average / pixel: 7.867474
-Process 25
-Rays cast:          24000
-Spheres checked:    2431382
-   average / pixel: 31.658620
-Meshes checked:     609277
-   average / pixel: 7.933294
-Process 26
-Rays cast:          24000
-Spheres checked:    2472138
-   average / pixel: 32.189297
-Meshes checked:     615425
-   average / pixel: 8.013346
-Process 27
-Rays cast:          24000
-Spheres checked:    2530376
-   average / pixel: 32.947604
-Meshes checked:     627398
-   average / pixel: 8.169245
-Process 28
-Rays cast:          24000
-Spheres checked:    2514186
-   average / pixel: 32.736797
-Meshes checked:     624701
-   average / pixel: 8.134128
-Process 29
-Rays cast:          24000
-Spheres checked:    2541412
-   average / pixel: 33.091302
-Meshes checked:     630922
-   average / pixel: 8.215130
-Process 30
-Rays cast:          24000
-Spheres checked:    2537520
-   average / pixel: 33.040625
-Meshes checked:     633321
-   average / pixel: 8.246367
-Process 32
-Rays cast:          24103
-Spheres checked:    2527109
-   average / pixel: 32.905065
-Meshes checked:     636210
-   average / pixel: 8.283984
-Process 31
-Rays cast:          24007
-Spheres checked:    2558597
-   average / pixel: 33.315065
-Meshes checked:     640079
-   average / pixel: 8.334362
-Process 1
-Rays cast:          24000
-Spheres checked:    2509066
-   average / pixel: 32.670130
-Meshes checked:     614928
-   average / pixel: 8.006875
-Process 33
-Rays cast:          24635
-Spheres checked:    2595735
-   average / pixel: 33.798633
-Meshes checked:     657531
-   average / pixel: 8.561602
-Process 5
-Rays cast:          24000
-Spheres checked:    2462606
-   average / pixel: 32.065182
-Meshes checked:     604272
-   average / pixel: 7.868125
-Process 34
-Rays cast:          25004
-Spheres checked:    2633502
-   average / pixel: 34.290391
-Meshes checked:     670939
-   average / pixel: 8.736185
-Process 7
-Rays cast:          24000
-Spheres checked:    2423444
-   average / pixel: 31.555260
-Meshes checked:     603550
-   average / pixel: 7.858724
-Process 35
-Rays cast:          26071
-Spheres checked:    2773235
-   average / pixel: 36.109831
-Meshes checked:     710897
-   average / pixel: 9.256471
-Process 36
-Rays cast:          25602
-Spheres checked:    2699336
-   average / pixel: 35.147604
-Meshes checked:     688092
-   average / pixel: 8.959531
+Rays cast:          671395
+Spheres checked:    68262675
+   average / pixel: 888.836914
+Meshes checked:     16392711
+   average / pixel: 213.446758
 Process 3
-Rays cast:          24000
-Spheres checked:    2463656
-   average / pixel: 32.078854
-Meshes checked:     607752
-   average / pixel: 7.913437
-Process 2
-Rays cast:          24000
-Spheres checked:    2474936
-   average / pixel: 32.225729
-Meshes checked:     609127
-   average / pixel: 7.931341
-Process 6
-Rays cast:          24000
-Spheres checked:    2438116
-   average / pixel: 31.746302
-Meshes checked:     601507
-   average / pixel: 7.832122
-Process 37
-Rays cast:          25303
-Spheres checked:    2704265
-   average / pixel: 35.211784
-Meshes checked:     686920
-   average / pixel: 8.944271
+Rays cast:          734045
+Spheres checked:    73191049
+   average / pixel: 953.008451
+Meshes checked:     17562872
+   average / pixel: 228.683229
+Process 1
+Rays cast:          813863
+Spheres checked:    82835685
+   average / pixel: 1078.589648
+Meshes checked:     19828882
+   average / pixel: 258.188568
 Process 4
-Rays cast:          24000
-Spheres checked:    2450250
-   average / pixel: 31.904297
-Meshes checked:     603806
-   average / pixel: 7.862057
-Process 38
-Rays cast:          25471
-Spheres checked:    2732903
-   average / pixel: 35.584674
-Meshes checked:     693988
-   average / pixel: 9.036302
+Rays cast:          796811
+Spheres checked:    79066111
+   average / pixel: 1029.506654
+Meshes checked:     18847002
+   average / pixel: 245.403672
+Process 2
+Rays cast:          766518
+Spheres checked:    77170178
+   average / pixel: 1004.820026
+Meshes checked:     18488501
+   average / pixel: 240.735690
+Process 7
+Rays cast:          759741
+Spheres checked:    74203025
+   average / pixel: 966.185221
+Meshes checked:     17843240
+   average / pixel: 232.333854
+Process 6
+Rays cast:          831541
+Spheres checked:    82273623
+   average / pixel: 1071.271133
+Meshes checked:     19695258
+   average / pixel: 256.448672
+Process 5
+Rays cast:          832230
+Spheres checked:    82620494
+   average / pixel: 1075.787682
+Meshes checked:     19728736
+   average / pixel: 256.884583
+Process 24
+Rays cast:          562938
+Spheres checked:    55482960
+   average / pixel: 722.434375
+Meshes checked:     13305931
+   average / pixel: 173.254310
+Process 25
+Rays cast:          652716
+Spheres checked:    65067564
+   average / pixel: 847.233906
+Meshes checked:     15676178
+   average / pixel: 204.116901
+Process 10
+Rays cast:          717946
+Spheres checked:    71252176
+   average / pixel: 927.762708
+Meshes checked:     17069771
+   average / pixel: 222.262643
+Process 11
+Rays cast:          658628
+Spheres checked:    66255222
+   average / pixel: 862.698203
+Meshes checked:     15905491
+   average / pixel: 207.102747
+Process 12
+Rays cast:          671985
+Spheres checked:    67547649
+   average / pixel: 879.526680
+Meshes checked:     16187163
+   average / pixel: 210.770352
+Process 13
+Rays cast:          676721
+Spheres checked:    68307105
+   average / pixel: 889.415430
+Meshes checked:     16332411
+   average / pixel: 212.661602
+Process 14
+Rays cast:          648195
+Spheres checked:    65660453
+   average / pixel: 854.953815
+Meshes checked:     15739384
+   average / pixel: 204.939896
+Process 15
+Rays cast:          638192
+Spheres checked:    65360396
+   average / pixel: 851.046823
+Meshes checked:     15728629
+   average / pixel: 204.799857
+Process 17
+Rays cast:          697507
+Spheres checked:    71245665
+   average / pixel: 927.677930
+Meshes checked:     17082167
+   average / pixel: 222.424049
+Process 19
+Rays cast:          657593
+Spheres checked:    67282847
+   average / pixel: 876.078737
+Meshes checked:     16203795
+   average / pixel: 210.986914
+Process 22
+Rays cast:          658784
+Spheres checked:    66728740
+   average / pixel: 868.863802
+Meshes checked:     16128078
+   average / pixel: 210.001016
+Process 21
+Rays cast:          731565
+Spheres checked:    73365311
+   average / pixel: 955.277487
+Meshes checked:     17593775
+   average / pixel: 229.085612
+Process 23
+Rays cast:          673788
+Spheres checked:    67473502
+   average / pixel: 878.561224
+Meshes checked:     16246265
+   average / pixel: 211.539909
+Process 20
+Rays cast:          722221
+Spheres checked:    72765089
+   average / pixel: 947.462096
+Meshes checked:     17453091
+   average / pixel: 227.253789
+Process 18
+Rays cast:          625608
+Spheres checked:    63778052
+   average / pixel: 830.443385
+Meshes checked:     15352891
+   average / pixel: 199.907435
+Process 32
+Rays cast:          896407
+Spheres checked:    90157133
+   average / pixel: 1173.921003
+Meshes checked:     22027963
+   average / pixel: 286.822435
+Process 26
+Rays cast:          658402
+Spheres checked:    66478940
+   average / pixel: 865.611198
+Meshes checked:     15998981
+   average / pixel: 208.320065
+Process 33
+Rays cast:          946811
+Spheres checked:    95574459
+   average / pixel: 1244.459102
+Meshes checked:     23392874
+   average / pixel: 304.594714
+Process 27
+Rays cast:          779727
+Spheres checked:    80094705
+   average / pixel: 1042.899805
+Meshes checked:     19482860
+   average / pixel: 253.683073
+Process 28
+Rays cast:          853163
+Spheres checked:    86590185
+   average / pixel: 1127.476367
+Meshes checked:     21009607
+   average / pixel: 273.562591
+Process 31
+Rays cast:          856330
+Spheres checked:    86885060
+   average / pixel: 1131.315885
+Meshes checked:     21291749
+   average / pixel: 277.236315
+Process 29
+Rays cast:          864539
+Spheres checked:    88557783
+   average / pixel: 1153.096133
+Meshes checked:     21544552
+   average / pixel: 280.528021
+Process 30
+Rays cast:          839514
+Spheres checked:    85585712
+   average / pixel: 1114.397292
+Meshes checked:     20882132
+   average / pixel: 271.902760
 Process 40
-Rays cast:          25398
-Spheres checked:    2708100
-   average / pixel: 35.261719
-Meshes checked:     691505
-   average / pixel: 9.003971
+Rays cast:          1036580
+Spheres checked:    99658138
+   average / pixel: 1297.632005
+Meshes checked:     24082198
+   average / pixel: 313.570286
+Process 34
+Rays cast:          893304
+Spheres checked:    89954088
+   average / pixel: 1171.277188
+Meshes checked:     21983794
+   average / pixel: 286.247318
+Process 35
+Rays cast:          872439
+Spheres checked:    88106161
+   average / pixel: 1147.215638
+Meshes checked:     21605275
+   average / pixel: 281.318685
+Process 36
+Rays cast:          888336
+Spheres checked:    87730300
+   average / pixel: 1142.321615
+Meshes checked:     21313050
+   average / pixel: 277.513672
+Process 37
+Rays cast:          908112
+Spheres checked:    89370382
+   average / pixel: 1163.676849
+Meshes checked:     21666585
+   average / pixel: 282.116992
+Process 38
+Rays cast:          945605
+Spheres checked:    91983363
+   average / pixel: 1197.700039
+Meshes checked:     22229847
+   average / pixel: 289.451133
 Process 39
-Rays cast:          26078
-Spheres checked:    2805894
-   average / pixel: 36.535078
-Meshes checked:     721583
-   average / pixel: 9.395612
+Rays cast:          950071
+Spheres checked:    93199745
+   average / pixel: 1213.538346
+Meshes checked:     22663767
+   average / pixel: 295.101133
 Process 41
-Rays cast:          25779
-Spheres checked:    2779033
-   average / pixel: 36.185326
-Meshes checked:     714341
-   average / pixel: 9.301315
+Rays cast:          1090935
+Spheres checked:    104609835
+   average / pixel: 1362.107227
+Meshes checked:     25364882
+   average / pixel: 330.271901
 Process 42
-Rays cast:          26324
-Spheres checked:    2823042
-   average / pixel: 36.758359
-Meshes checked:     728461
-   average / pixel: 9.485169
-Process 45
-Rays cast:          26638
-Spheres checked:    2882488
-   average / pixel: 37.532396
-Meshes checked:     744098
-   average / pixel: 9.688776
+Rays cast:          1060846
+Spheres checked:    101797354
+   average / pixel: 1325.486380
+Meshes checked:     24586469
+   average / pixel: 320.136315
 Process 43
-Rays cast:          26658
-Spheres checked:    2847128
-   average / pixel: 37.071979
-Meshes checked:     731869
-   average / pixel: 9.529544
+Rays cast:          1019360
+Spheres checked:    99193872
+   average / pixel: 1291.586875
+Meshes checked:     24030302
+   average / pixel: 312.894557
 Process 44
-Rays cast:          26246
-Spheres checked:    2799040
-   average / pixel: 36.445833
-Meshes checked:     717357
-   average / pixel: 9.340586
-Process 46
-Rays cast:          25525
-Spheres checked:    2784069
-   average / pixel: 36.250898
-Meshes checked:     714299
-   average / pixel: 9.300768
+Rays cast:          1096732
+Spheres checked:    105422478
+   average / pixel: 1372.688516
+Meshes checked:     25403951
+   average / pixel: 330.780612
+Process 45
+Rays cast:          1070760
+Spheres checked:    103050774
+   average / pixel: 1341.806953
+Meshes checked:     24795615
+   average / pixel: 322.859570
 Process 47
-Rays cast:          26151
-Spheres checked:    2838053
-   average / pixel: 36.953815
-Meshes checked:     729405
-   average / pixel: 9.497461
+Rays cast:          1025331
+Spheres checked:    101057079
+   average / pixel: 1315.847383
+Meshes checked:     24349676
+   average / pixel: 317.053073
+Process 46
+Rays cast:          1027438
+Spheres checked:    99320514
+   average / pixel: 1293.235859
+Meshes checked:     23783565
+   average / pixel: 309.681836
 Process 48
-Rays cast:          25216
-Spheres checked:    2720682
-   average / pixel: 35.425547
-Meshes checked:     689186
-   average / pixel: 8.973776
+Rays cast:          1098003
+Spheres checked:    107370735
+   average / pixel: 1398.056445
+Meshes checked:     25675467
+   average / pixel: 334.315977
 Process 49
-Rays cast:          25378
-Spheres checked:    2745416
-   average / pixel: 35.747604
-Meshes checked:     699090
-   average / pixel: 9.102734
-Process 56
-Rays cast:          24760
-Spheres checked:    2711852
-   average / pixel: 35.310573
-Meshes checked:     672596
-   average / pixel: 8.757760
-Process 57
-Rays cast:          24890
-Spheres checked:    2763618
-   average / pixel: 35.984609
-Meshes checked:     684932
-   average / pixel: 8.918385
-Process 58
-Rays cast:          24748
-Spheres checked:    2752214
-   average / pixel: 35.836120
-Meshes checked:     683475
-   average / pixel: 8.899414
-Process 0
-Rays cast:          24000
-Spheres checked:    2513052
-   average / pixel: 32.722031
-Meshes checked:     617255
-   average / pixel: 8.037174
-Process 59
-Rays cast:          24614
-Spheres checked:    2739258
-   average / pixel: 35.667422
-Meshes checked:     680945
-   average / pixel: 8.866471
-Process 60
-Rays cast:          24040
-Spheres checked:    2679700
-   average / pixel: 34.891927
-Meshes checked:     657039
-   average / pixel: 8.555195
-Process 61
-Rays cast:          24032
-Spheres checked:    2739876
-   average / pixel: 35.675469
-Meshes checked:     669803
-   average / pixel: 8.721393
-Process 62
-Rays cast:          24012
-Spheres checked:    2733046
-   average / pixel: 35.586536
-Meshes checked:     670301
-   average / pixel: 8.727878
-Process 63
-Rays cast:          24000
-Spheres checked:    2747508
-   average / pixel: 35.774844
-Meshes checked:     672336
-   average / pixel: 8.754375
+Rays cast:          1093850
+Spheres checked:    106407258
+   average / pixel: 1385.511172
+Meshes checked:     25456195
+   average / pixel: 331.460872
 Process 50
-Rays cast:          25757
-Spheres checked:    2820071
-   average / pixel: 36.719674
-Meshes checked:     718214
-   average / pixel: 9.351745
+Rays cast:          1076121
+Spheres checked:    106114395
+   average / pixel: 1381.697852
+Meshes checked:     25468011
+   average / pixel: 331.614727
+Process 56
+Rays cast:          1080016
+Spheres checked:    110133288
+   average / pixel: 1434.027188
+Meshes checked:     26460559
+   average / pixel: 344.538529
 Process 51
-Rays cast:          25641
-Spheres checked:    2816235
-   average / pixel: 36.669727
-Meshes checked:     713732
-   average / pixel: 9.293385
-Process 55
-Rays cast:          25799
-Spheres checked:    2838867
-   average / pixel: 36.964414
-Meshes checked:     713706
-   average / pixel: 9.293047
+Rays cast:          1062039
+Spheres checked:    106191699
+   average / pixel: 1382.704414
+Meshes checked:     25726206
+   average / pixel: 334.976641
 Process 52
-Rays cast:          25395
-Spheres checked:    2769677
-   average / pixel: 36.063503
-Meshes checked:     693543
-   average / pixel: 9.030508
-Process 53
-Rays cast:          26417
-Spheres checked:    2899913
-   average / pixel: 37.759284
-Meshes checked:     729686
-   average / pixel: 9.501120
+Rays cast:          1148312
+Spheres checked:    113909202
+   average / pixel: 1483.192734
+Meshes checked:     27438151
+   average / pixel: 357.267591
 Process 54
-Rays cast:          26453
-Spheres checked:    2901105
-   average / pixel: 37.774805
-Meshes checked:     729747
-   average / pixel: 9.501914
+Rays cast:          1031661
+Spheres checked:    103785069
+   average / pixel: 1351.368086
+Meshes checked:     24960592
+   average / pixel: 325.007708
+Process 53
+Rays cast:          1106525
+Spheres checked:    110313685
+   average / pixel: 1436.376107
+Meshes checked:     26494832
+   average / pixel: 344.984792
+Process 55
+Rays cast:          1042499
+Spheres checked:    106070625
+   average / pixel: 1381.127930
+Meshes checked:     25622731
+   average / pixel: 333.629310
+Process 57
+Rays cast:          1065967
+Spheres checked:    109583549
+   average / pixel: 1426.869128
+Meshes checked:     26331079
+   average / pixel: 342.852591
+Process 59
+Rays cast:          1033204
+Spheres checked:    106903058
+   average / pixel: 1391.966901
+Meshes checked:     25735968
+   average / pixel: 335.103750
+Process 58
+Rays cast:          1014930
+Spheres checked:    104563040
+   average / pixel: 1361.497917
+Meshes checked:     25082957
+   average / pixel: 326.601003
+Process 60
+Rays cast:          994295
+Spheres checked:    102630055
+   average / pixel: 1336.328841
+Meshes checked:     24622274
+   average / pixel: 320.602526
+Process 61
+Rays cast:          976636
+Spheres checked:    101455644
+   average / pixel: 1321.037031
+Meshes checked:     24432843
+   average / pixel: 318.135977
+Process 62
+Rays cast:          933990
+Spheres checked:    97118704
+   average / pixel: 1264.566458
+Meshes checked:     23413490
+   average / pixel: 304.863151
+Process 63
+Rays cast:          923006
+Spheres checked:    95945872
+   average / pixel: 1249.295208
+Meshes checked:     23089086
+   average / pixel: 300.639141
+Process 0
+Rays cast:          813819
+Spheres checked:    83176831
+   average / pixel: 1083.031654
+Meshes checked:     19871301
+   average / pixel: 258.740898
 Non-positive luma at (289, 126): 0.000000
-Non-positive luma at (288, 127): 0.000000
-Non-positive luma at (289, 127): 0.000000
-scene_luma = 0.047976
+scene_luma = 0.077662
