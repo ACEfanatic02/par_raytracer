@@ -549,11 +549,12 @@ TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug) {
                 // Ray reflect_ray = GetRayInCone(hit_p, Reflect(ray.direction, hit_normal), 1.0f - DEG2RAD(15.0f));
                 Vector4 spec_color = TraceRayColor(reflect_ray, scene, iters - 1, debug);
 
-                indirect_specular_light += spec_color;
+                float weight = Max(0.0f, Dot(-reflect_ray.direction, -ray.direction));
+                indirect_specular_light += spec_color * weight;
             }
         }
 
-        float object_reflectivity = 0.05f;// TODO
+        float object_reflectivity = 0.04f;// TODO
         float fresnel = FresnelAmount(1.0f, mat->index_of_refraction, hit_normal, ray.direction);
         float w_reflect = (object_reflectivity + (1.0f - object_reflectivity) * fresnel);
         float w_diffuse = 1.0f - w_reflect;
