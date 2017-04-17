@@ -413,7 +413,9 @@ ShadeLight(Scene * scene, LightSource * light, Ray view_ray, Vector3 normal, Vec
 static Vector4
 TraceRayColor(Ray ray, Scene * scene, s32 iters, DebugCounters * debug, RandomState * rng) {
     Vector4 color = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
-    if (iters < 0) {
+    if (iters < 0 ||                                                        // Bottom-out
+        (iters != gParams.bounce_depth && Random_NextFloat01(rng) < 0.5f))  // Russian-roulette early out.
+    {
         return color;
     }
 
