@@ -270,8 +270,6 @@ RenderTask(RenderJob * job, DebugCounters * debug) {
     u32 h = job->shared->height;
     Assert(w > 0 && h > 0, "Must have positive size.");
 
-    // printf("Task, from %u to %u\n", job->start_idx, job->end_idx);
-
     for (u32 i = job->start_idx; i < job->end_idx; ++i) {
         u32 x = i % w;
         u32 y = i / w;
@@ -326,8 +324,11 @@ Render(Camera * cam, Scene * scene, u32 width, u32 height) {
     DebugCounters debug = {};
     {
         MPI_Barrier(MPI_COMM_WORLD);
-        TIME_BLOCK("Render");
-        RenderQueueWorker(&debug);
+        TIME_BLOCK("Render, sync");
+        {
+            TIME_BLOCK("Render, async");
+            RenderQueueWorker(&debug);
+        }
         MPI_Barrier(MPI_COMM_WORLD);
     }
 
