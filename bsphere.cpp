@@ -380,7 +380,7 @@ static void
 BuildHierarchy(BoundingHierarchy * h, Mesh * mesh) {
     std::vector<BoundingSphereP *> spheres;
     {
-        TIME_BLOCK("Build Leaf Spheres");
+        // TIME_BLOCK("Build Leaf Spheres");
         for (u32 i = 0; i < mesh->groups.size(); ++i) {
             MeshGroup * mg = &mesh->groups[i];
 
@@ -395,7 +395,7 @@ BuildHierarchy(BoundingHierarchy * h, Mesh * mesh) {
 
     u32 total_sphere_count = spheres.size();
     {
-        TIME_BLOCK("Build Sphere Tree");
+        // TIME_BLOCK("Build Sphere Tree");
         // This algorithm is ~O(n^2) in number of leaf spheres.
         // This is *really slow* on large models.  So, we do want to
         // prebake this stuff as well.
@@ -433,12 +433,12 @@ BuildHierarchy(BoundingHierarchy * h, Mesh * mesh) {
     h->mesh_groups.reserve(total_sphere_count);
     h->mesh = mesh;
     {
-        TIME_BLOCK("Flatten Tree");
+        // TIME_BLOCK("Flatten Tree");
         FlattenHierarchyTree(&h->spheres, &h->mesh_groups, spheres[0]);
     }
 
     {
-        TIME_BLOCK("Invariant Check");
+        // TIME_BLOCK("Invariant Check");
         CheckInvariants(h, h->spheres[0], 0);
     }
 }
