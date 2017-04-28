@@ -5,42 +5,64 @@
 
 #include "raytracer.cpp"
 
-// Sample of 16-bit true random numbers taken from random.org.
-u64 gRNGInitTable[128] = {
-    0xe80d, 0x593d, 0xca8c, 0x4a4b, 0x0490, 0xb7c9, 0x9f06, 0xcd4f,
-    0xe25a, 0x7f7a, 0x18e0, 0x3e49, 0x7d31, 0xba35, 0x012d, 0xefea,
-    0x4b09, 0xca4b, 0x63ce, 0x060a, 0x8b97, 0x02de, 0x6990, 0x4439,
-    0xfeda, 0x9b85, 0xffe8, 0xd7fa, 0x0ba6, 0x8ec9, 0xadd1, 0xba80,
-    0xd23a, 0xfac8, 0x3566, 0xe8b2, 0x39fc, 0x0b86, 0xf192, 0x5b61,
-    0x1f49, 0xdae5, 0xf40d, 0xd24c, 0xc2ec, 0x110f, 0x525c, 0xe8c5,
-    0x68ab, 0x4082, 0xfb96, 0x55fb, 0x6f2a, 0x8520, 0x3242, 0x6bea,
-    0x67f8, 0xf12f, 0xd0e3, 0x69ec, 0x12be, 0xfc6f, 0xca9a, 0xbcf1,
-    0xf1fb, 0x9571, 0xc52a, 0x3ed1, 0xb36d, 0xe094, 0xc24c, 0x1804,
-    0x4d4b, 0xdab0, 0xb0f2, 0x5ec3, 0xa517, 0x7282, 0x500b, 0x269d,
-    0x2e87, 0x2f6b, 0xdc5f, 0x487c, 0x97d3, 0xc8c6, 0x93ae, 0xdb26,
-    0xe672, 0x1bee, 0x9e4d, 0x72fb, 0x11b4, 0x3ae0, 0x2160, 0xd52e,
-    0x75e5, 0xf012, 0x0c9e, 0xb0a0, 0xfb28, 0x2804, 0x60ce, 0x2753,
-    0x3f9b, 0xfc92, 0x8720, 0x2676, 0x678e, 0x7fc7, 0x6884, 0x6ffd,
-    0xd388, 0x5f9e, 0x727c, 0x08b5, 0x9aac, 0xe0d1, 0x5335, 0x8aa6,
-    0x89a1, 0x5028, 0x0095, 0xaf50, 0x3a00, 0x5bd9, 0xfe49, 0x31d9,
+// "True" random bytes for seeds.
+u64 gRNGInitTable[96] = {
+    0x835fdd9143716fe3, 0x766b5859cff0b8af, 
+    0xa6e413e7db131ae8, 0xf937ae7b5dfa5f9e, 
+    0xca1da92e487e5dda, 0x4572044b46751956, 
+    0x3ecc4cd8b7da619c, 0xc9c946cf5b554bfe, 
+    0xd88bf2e733a7724e, 0xa2a3df20cbb69d57, 
+    0x405a331e428599d6, 0xaa596a37b752e07f, 
+    0xd662bedca87d669c, 0x76d3f659517d381a, 
+    0xcdede6fa437952b0, 0xcde0101320a890a9, 
+    0x3190fdfb6f56d995, 0x6ccac23f5cedb255, 
+    0x03f70862bfa504a3, 0x711506ac8688dd62, 
+    0x68c4d831d507c08d, 0x1826f68dbfd4bd2d, 
+    0xf594d21a7bbc7f1b, 0x20a1aba419d35a11, 
+    0x0c34f20b15e98e44, 0xe84ca37db4fd90cd, 
+    0x02e6b82454860f8c, 0x0083f64f18ae2a66, 
+    0xaea8f6929ae5c72a, 0xa1c26f00a1f61b5d, 
+    0x15055adabf3728c7, 0x243bc00f89fadf77, 
+    0x3018bb7a88d763fa, 0xf48398b9b8408198, 
+    0xfbe5422ce184ce04, 0xdb74b5a8958da74b, 
+    0xa33992eec0b0a00b, 0xbc76994066f79b5f, 
+    0xdee7e04ffcb817f5, 0xc9d4b45587ca3f40, 
+    0xf1a3d45f612df83b, 0xd54a32df4fa418dc, 
+    0x187107e77b3a55d0, 0x5a81cfea84fe69d9, 
+    0xe10b82423cb2f841, 0x23ce39e24eccfccb, 
+    0x9e2390f72f8ddc53, 0x4b172f7c1701b787, 
+    0x4b22b493189f49c1, 0x57c995ef7e96cd1c, 
+    0xf5e792a7112361d8, 0x36042fe2a4590b09, 
+    0x47fa9894e9128c04, 0xa1f8ab6f95b3270c, 
+    0xe7a2e57345e8b9eb, 0x8e5ed76c080b667a, 
+    0x455459799a3af869, 0x35d2adba6c69d966, 
+    0x582242f263c40f8b, 0xffd827f43c11f58d, 
+    0x762dc0459e350655, 0xf2e589aa370ca22f, 
+    0x0ef225880283464f, 0x3ac446246d6c0810, 
+    0x9397032ba5e8d2f2, 0x1fb8e9d372aee480, 
+    0xdb13349a665cfc7e, 0x1004319e83016bf9, 
+    0x64bbf5ea8a5b64f2, 0xbcfd4254df754a14, 
+    0xe0ce0a93bcbf5d27, 0x529369f715b36806, 
+    0x47893798eacd302a, 0x43ef1854d3e4c8ce, 
+    0xdbf975a99f9450ca, 0x0a709e78f5e65d20, 
+    0x98e236f202644dde, 0xa5883cff1a026c6f, 
+    0xb9bb81b1d7d93048, 0x6b7d779911baa9cc, 
+    0xf9db1b72ebc5470d, 0x7e5a96e8a322f03b, 
+    0x78b7c9ff8ad99ec6, 0x4d110f542e72ad71, 
+    0xb3e2060505d633dc, 0xdc8eda857aa8e780, 
+    0xca598eb3ead7ecfc, 0x849a9d886fb2b2d3, 
+    0xa496d8dc0ff0d0da, 0xf8133ad72001ec56, 
+    0x1a0a073fabf62c12, 0xd7034304d881d6e3, 
+    0x92c2baa0d06ea9be, 0xc5dc91e742f1d52e, 
+    0x42fe9ba237b6887e, 0xff8eef282d88e8e9, 
 };
 
 static RandomState
 GetRNG(u32 process_id, u32 thread_id) {
-    // Produce a good quality seed from pid and tid.
-    // Each contributes 32 bits to the seed from table lookups.
-    u32 i0 = process_id % array_count(gRNGInitTable);
-    u32 i1 = thread_id  % array_count(gRNGInitTable);
-    u32 i2 = array_count(gRNGInitTable) - i0 - 1;
-    u32 i3 = array_count(gRNGInitTable) - i1 - 1;
-
-    u64 seed = gRNGInitTable[i0] << 0  |
-               gRNGInitTable[i1] << 16 |
-               gRNGInitTable[i2] << 32 |
-               gRNGInitTable[i3] << 48;
+    u64 seed_idx = (process_id << 3 | thread_id) % array_count(gRNGInitTable);
 
     RandomState result;
-    Random_Seed(&result, seed);
+    Random_Seed(&result, gRNGInitTable[seed_idx]);
     return result;
 }
 
@@ -248,11 +270,14 @@ RenderTask(RenderJob * job, DebugCounters * debug) {
     u32 h = job->shared->height;
     Assert(w > 0 && h > 0, "Must have positive size.");
 
-    printf("Task, from %u to %u\n", job->start_idx, job->end_idx);
+    // printf("Task, from %u to %u\n", job->start_idx, job->end_idx);
 
     for (u32 i = job->start_idx; i < job->end_idx; ++i) {
         u32 x = i % w;
         u32 y = i / w;
+        if (y >= h) {
+            break;
+        }
 
         u32 buffer_idx = i - job->start_idx;
         job->buffer[buffer_idx] = RenderPixel(job, debug, x, y);
@@ -269,7 +294,7 @@ RenderQueueWorker(DebugCounters * debug) {
 
         RenderJob * j = &task_list[task_id];
         {
-            TIME_BLOCK("Render Row");
+            // TIME_BLOCK("Render Row");
             RenderTask(j, debug);
         }
     }
@@ -287,7 +312,7 @@ Render(Camera * cam, Scene * scene, u32 width, u32 height) {
    
     u32 total_pixel_count = width * height;
     Assert(total_pixel_count % gMPI_CommSize == 0, "Pixel count must be a multiple of process count.");
-    u32 count_per_proc = total_pixel_count / gMPI_CommSize;
+    u32 count_per_proc = (total_pixel_count + gMPI_CommSize - 1) / gMPI_CommSize;
     RenderJob job;
     job.shared = &shared;
     job.start_idx = count_per_proc * gMPI_CommRank;
@@ -301,12 +326,10 @@ Render(Camera * cam, Scene * scene, u32 width, u32 height) {
     DebugCounters debug = {};
     {
         MPI_Barrier(MPI_COMM_WORLD);
-        TIME_BLOCK("Render, Initial Pass");
+        TIME_BLOCK("Render");
         RenderQueueWorker(&debug);
         MPI_Barrier(MPI_COMM_WORLD);
     }
-
-    // ReduceImageMPI(fb);
 
     Framebuffer result;
     result.width  = width;
@@ -316,10 +339,12 @@ Render(Camera * cam, Scene * scene, u32 width, u32 height) {
     }
 
     {
+        TIME_BLOCK("Reduce");
         // MPI Reduction
         MPI_Gather(job.buffer,    count_per_proc*4, MPI_FLOAT,
                    result.pixels, count_per_proc*4, MPI_FLOAT,
                    0, MPI_COMM_WORLD);
+        MPI_Barrier(MPI_COMM_WORLD);
     }
 
     printf("Process %d\n", gMPI_CommRank);
@@ -523,11 +548,11 @@ int main(int argc, char ** argv) {
     Matrix33 transform;
     transform.SetIdentity();
     {
-        TIME_BLOCK("Load Mesh");
+        // TIME_BLOCK("Load Mesh");
         mesh = ParseOBJ(gParams.data_dirname, "sponza.obj", transform);
     }
     {
-        TIME_BLOCK("Calculate Tangents");
+        // TIME_BLOCK("Calculate Tangents");
         CalculateTangents(mesh);
     }
     {
@@ -543,7 +568,7 @@ int main(int argc, char ** argv) {
     // printf("Vertices (t): %u\n", mesh->texcoords.size());
     // printf("Vertices (n): %u\n", mesh->normals.size());
     {
-        TIME_BLOCK("Build Hierarchy");
+        // TIME_BLOCK("Build Hierarchy");
         BuildHierarchy(&hierarchy, mesh);
     }
 
